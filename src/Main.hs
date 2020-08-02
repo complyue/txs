@@ -19,5 +19,14 @@ main = do
   !src <- getContents
   let !ast = parseTXS src
 
-  print ast
+  -- print ast
+
+  !globals <- defaultGlobals
+
+  !result  <- runTXS globals ast
+
+  case result of
+    NilValue      -> pure ()
+    StrValue !msg -> putStrLn msg
+    _             -> print result
 

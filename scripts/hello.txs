@@ -2,10 +2,15 @@
 print "Hello, world!"  $
 
 obj = {}          $
+
 obj.name = "egg"  $
 obj.age = 1       $
 
-obj @ "name" = "baby"       $
-obj @ "age"  = obj.age + 1  $
+print ("At first it's the " ++ obj.name ++ " at " ++ obj.age)  $
 
-print $ "It's now: " ++ obj.name
+obj@"name" = "baby"       $
+obj@"age"  = obj.age + 1  $
+
+print ("Then it's the " ++ obj.name ++ " at " ++ obj@"age")  $
+
+nil

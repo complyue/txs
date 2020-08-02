@@ -3,7 +3,10 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Parser where
+module Parser
+  ( parseTXS
+  )
+where
 
 import           Prelude
 
@@ -19,14 +22,22 @@ import qualified Text.ParserCombinators.Parsec.Token
 import           Types
 
 
+parseTXS :: String -> Expr
+parseTXS !str = case parse txsParser "" str of
+  Left  e -> error $ show e
+  Right r -> r
+
+
 languageDef = haskellStyle
   { Token.reservedNames   = ["do"]
   , Token.reservedOpNames = [" ", "+", "-", "*", "/", "=", ".", "@", "++", "$"]
   }
-
 lexer = Token.makeTokenParser languageDef
 
 whiteSpace = Token.whiteSpace lexer -- parses whitespace
+nil = Text.Parsec.try $ do
+  Token.symbol lexer "nil"
+  notFollowedBy $ Token.identLetter languageDef
 identifier = Token.identifier lexer -- parses an identifier
 fap = Text.Parsec.try $ do -- function application, highest precedence
   notFollowedBy (Token.operator lexer)
@@ -34,7 +45,7 @@ fap = Text.Parsec.try $ do -- function application, highest precedence
 operator !sym = Text.Parsec.try $ do -- match an operator
   whiteSpace
   Token.reservedOp lexer sym
-  return $ BinaryOp sym
+  return $ BinOp sym
 faplow = Text.Parsec.try $ do -- function application, lowest precedence
   whiteSpace
   Token.reservedOp lexer "$"
@@ -45,6 +56,7 @@ stringLit = Token.stringLiteral lexer -- parse a string
 -- but that way `8 + 3` will be parsed as `8 (+3)` as we imposed
 -- the fap with higher precedence. improve this?
 integerLit = Token.decimal lexer -- parses an integer
+objectLit = Token.symbol lexer "{}" -- parses literal object
 
 
 txsParser :: Parser Expr
@@ -52,10 +64,12 @@ txsParser = whiteSpace >> parseExpr
 
 parseExpr :: Parser Expr
 parseExpr = buildExpressionParser opsTable $ choice
-  [ TxGroup <$> parens parseExpr
-  , AddrAttr <$> identifier
-  , LiteralStr <$> stringLit
-  , LiteralInt <$> integerLit
+  [ Paren <$> parens parseExpr
+  , LitNil <$ nil
+  , Attr <$> identifier
+  , LitStr <$> stringLit
+  , LitInt <$> integerLit
+  , LitObj <$ objectLit
   ]
  where
   opsTable =
