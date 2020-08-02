@@ -169,17 +169,11 @@ defaultGlobals = do
                           $ return ()
   readTVarIO globalsVar
  where
-  printHP :: HostProc
-  printHP NilValue !pgs !exit = exitProc pgs exit NilValue
-  printHP !arg !pgs !exit =
-    performIO
-        pgs
-        (putStrLn $ case arg of
-          StrValue s -> s
-          _          -> show arg
-        )
-      $ const
-      $ exitProc pgs exit arg
+  printHP :: HostIO
+  printHP NilValue !pgs !exit = atomically $ exitProc pgs exit NilValue
+  printHP !arg     !pgs !exit = do
+    putStrLn (toString arg)
+    atomically $ exitProc pgs exit arg
   concurHP :: HostProc
   concurHP !arg !pgs !exit = undefined
   repeatHP :: HostProc
