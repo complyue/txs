@@ -1,0 +1,14 @@
+
+cntr = 0  $
+db = {}   $
+
+concur 3  $
+  repeat 1e8  $
+    (
+      ident = cntr       $
+      cntr = cntr+1      $
+      obj = {}           $
+      obj.ident = ident  $
+      db @ ident = obj   $
+    ) $ 
+    metricTotal cntr

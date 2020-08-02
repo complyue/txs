@@ -1,0 +1,8 @@
+
+build/
+
+*.o
+*.hi
+*.prof
+*.hp
+*.ps
