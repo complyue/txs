@@ -5,5 +5,14 @@
 
 module Types where
 
-import Prelude
+import           Prelude
+
+
+data Expr = AddrAttr !String
+          | LiteralStr !String
+          | LiteralInt !Integer
+          | BinaryOp !String !Expr !Expr
+          | FnApp !Expr !Expr
+          | TxGroup !Expr
+  deriving (Show)
 

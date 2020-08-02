@@ -5,7 +5,7 @@
 
 module RT where
 
-import Prelude
+import           Prelude
 
 import           GHC.Conc                       ( unsafeIOToSTM )
 
@@ -27,4 +27,16 @@ import           Data.Dynamic
 -- we'd only use libraries bundled with GHC
 import           Data.Map.Strict                ( Map )
 import qualified Data.Map.Strict               as Map
+
+import           Text.Parsec
+
+import           Types
+import           Parser
+
+
+parseTXS :: String -> Expr
+parseTXS !str = case parse txsParser "" str of
+  Left  e -> error $ show e
+  Right r -> r
+
 

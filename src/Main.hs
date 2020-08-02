@@ -7,10 +7,17 @@ module Main where
 
 import           Prelude
 
+import           System.IO
+
 import           Types
 import           Parser
 import           RT
 
 
 main :: IO ()
-main = putStrLn "Transactional Scripting to be done"
+main = do
+  !src <- getContents
+  let !ast = parseTXS src
+
+  print ast
+
