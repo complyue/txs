@@ -35,11 +35,11 @@ evalExpr !expr !pgs !exit = case expr of
       !os <- readTVar osv
       case fromDynamic os of
         -- a callable host object, make the strict function application
-        Just (hostProc :: HostProc) -> evalExpr rhx pgs
-          $ \ !rhv -> hostProc rhv pgs $ \ !val -> exitProc pgs exit val
+        Just (hostProc :: HostProc) ->
+          hostProc rhx pgs $ \ !val -> exitProc pgs exit val
         Nothing -> case fromDynamic os of
-          Just (hostIO :: HostIO) -> evalExpr rhx pgs
-            $ \ !rhv -> performIO pgs (hostIO rhv pgs exit) $ \() -> pure ()
+          Just (hostIO :: HostIO) ->
+            scheduleIO pgs (hostIO rhx pgs exit) $ \() -> pure ()
           -- the tricky treat, make it as if a sequence, when left-hand is not a
           -- callable host object
           Nothing -> evalExpr rhx pgs exit
@@ -80,18 +80,24 @@ data ProgState = ProgState {
   , pgs'task'queue :: !(TQueue (Either (IO ()) (STM())))
   }
 
-type HostProc = AttrVal -> ProgState -> (AttrVal -> STM ()) -> STM ()
-type HostIO = AttrVal -> ProgState -> (AttrVal -> STM ()) -> IO ()
+type HostProc = Expr -> ProgState -> (AttrVal -> STM ()) -> STM ()
+type HostIO = Expr -> ProgState -> (AttrVal -> STM ()) -> IO ()
 
 exitProc :: ProgState -> (AttrVal -> STM ()) -> AttrVal -> STM ()
 exitProc !pgs !exit !val = if pgs'in'tx pgs
   then exit val
   else writeTQueue (pgs'task'queue pgs) $ Right $! exit val
 
-performIO :: forall a . ProgState -> IO a -> (a -> STM ()) -> STM ()
-performIO !pgs !act !exit = writeTQueue tq $ Left $ do
+-- | To trigger IO action from a 'HostProc', note the 'IO' action will only be
+-- performed after current transaction is committed. 
+--
+-- CAVEAT: This can break the transaction boundary intuited at scripting level,
+--         if the stem exit of a 'HostProc' is only passed to 'scheduleIO' as
+--         the 'exitNextTx'.
+scheduleIO :: forall a . ProgState -> IO a -> (a -> STM ()) -> STM ()
+scheduleIO !pgs !act !exitNextTx = writeTQueue tq $ Left $ do
   !result <- act
-  atomically $ writeTQueue tq $ Right $! exit result
+  atomically $ writeTQueue tq $ Right $! exitNextTx result
   where !tq = pgs'task'queue pgs
 
 
@@ -150,13 +156,13 @@ defaultGlobals = do
   atomically $ newObj $ \ !globals ->
     seqcontSTM
         [ \ !exit ->
-            newObj'' dhp $ \ !hpo -> objSetAttr globals nm (RefValue hpo) exit
-        | (nm, dhp) <-
-          [ ("assert"     , toDyn assertHP)
-          , ("print"      , toDyn printHP)
-          , ("concur"     , toDyn concurHP)
-          , ("repeat"     , toDyn repeatHP)
-          , ("metricOneTx", toDyn metricOneTxHP)
+            newObj' hp $ \ !hpo -> objSetAttr globals nm (RefValue hpo) exit
+        | (nm, hp) <-
+          [ ("assert"     , assertHP)
+          , ("print"      , printHP)
+          , ("concur"     , concurHP)
+          , ("repeat"     , repeatHP)
+          , ("metricOneTx", metricOneTxHP)
           ]
         ]
       $ const
@@ -164,22 +170,24 @@ defaultGlobals = do
   readTVarIO globalsVar
  where
   assertHP :: HostProc -- manual currying implemented here
-  assertHP !arg !pgs !exit = newObj' assert1HP $ exitProc pgs exit . RefValue
-   where
-    assert1HP !arg1 !pgs1 !exit1 = if arg1 == arg
-      then exitProc pgs1 exit1 $ StrValue " * assertion passed *"
-      else error "* assertion failed *"
-  printHP :: HostIO
-  printHP NilValue !pgs !exit = atomically $ exitProc pgs exit NilValue
-  printHP !arg     !pgs !exit = do
-    putStrLn (toString arg)
-    atomically $ exitProc pgs exit NilValue
+  assertHP !argExpr !pgs !exit = evalExpr argExpr pgs $ \ !arg -> do
+    let assert1HP !argExpr1 !pgs1 !exit1 = evalExpr argExpr1 pgs $ \ !arg1 ->
+          if arg1 == arg
+            then exitProc pgs1 exit1 $ StrValue " * assertion passed *"
+            else error "* assertion failed *"
+    newObj' assert1HP $ exitProc pgs exit . RefValue
+  printHP :: HostProc
+  printHP !argExpr !pgs !exit = evalExpr argExpr pgs $ \case
+    NilValue -> exitProc pgs exit NilValue
+    !arg     -> do
+      scheduleIO pgs (putStrLn $ toString arg) $ const $ return ()
+      exitProc pgs exit NilValue
   concurHP :: HostProc
-  concurHP !arg !pgs !exit = undefined
+  concurHP !argExpr !pgs !exit = undefined
   repeatHP :: HostProc
-  repeatHP !arg !pgs !exit = undefined
+  repeatHP !argExpr !pgs !exit = undefined
   metricOneTxHP :: HostProc
-  metricOneTxHP !arg !pgs !exit = undefined
+  metricOneTxHP !argExpr !pgs !exit = undefined
 
 
 seqcontSTM :: forall a . [(a -> STM ()) -> STM ()] -> ([a] -> STM ()) -> STM ()
