@@ -24,6 +24,8 @@ import           Data.Dynamic
 
 import           Types
 import           Parser
+import           Utils
+import           Diag
 
 
 evalExpr :: Expr -> ProgState -> (AttrVal -> STM ()) -> STM ()
@@ -152,6 +154,9 @@ infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
 
 defaultGlobals :: IO Object
 defaultGlobals = do
+
+  !rtd        <- createRuntimeDiagnostic 10
+
   !globalsVar <- newTVarIO undefined
   atomically $ newObj $ \ !globals ->
     seqcontSTM
@@ -162,13 +167,15 @@ defaultGlobals = do
           , ("print"      , printHP)
           , ("concur"     , concurHP)
           , ("repeat"     , repeatHP)
-          , ("metricOneTx", metricOneTxHP)
+          , ("metricOneTx", metricOneTxHP rtd)
           ]
         ]
       $ const
       $ writeTVar globalsVar globals
   readTVarIO globalsVar
+
  where
+
   assertHP :: HostProc -- manual currying implemented here
   assertHP !msgExpr !pgs !exit = evalExpr msgExpr pgs $ \ !assertMsg ->
     let assert1HP !expectExpr !pgs1 !exit1 =
@@ -191,17 +198,19 @@ defaultGlobals = do
       scheduleIO pgs (putStrLn $ toString arg) $ const $ return ()
       exitProc pgs exit NilValue
   concurHP :: HostProc
-  concurHP !argExpr !pgs !exit = undefined
+  concurHP !argExpr !pgs !exit = exitProc pgs exit NilValue
   repeatHP :: HostProc
-  repeatHP !argExpr !pgs !exit = undefined
-  metricOneTxHP :: HostProc
-  metricOneTxHP !argExpr !pgs !exit = undefined
-
-
-seqcontSTM :: forall a . [(a -> STM ()) -> STM ()] -> ([a] -> STM ()) -> STM ()
-seqcontSTM !xs !exit = go xs []
- where
-  go :: [(a -> STM ()) -> STM ()] -> [a] -> STM ()
-  go []         ys = exit $! reverse $! ys
-  go (x : rest) ys = x $ \y -> go rest (y : ys)
+  repeatHP !argExpr !pgs !exit = evalExpr argExpr pgs $ \case
+    IntValue !cnt | cnt >= 0 ->
+      let repeat1 !repeateeExpr !pgs1 !exit1 = doRepeat cnt             where
+              doRepeat !cntLeft = if cntLeft < 1
+                then exitProc pgs1 exit1 NilValue
+                else evalExpr repeateeExpr pgs1 $ const $ doRepeat (cntLeft - 1)
+      in  newObj' repeat1 $ exitProc pgs exit . RefValue
+    !badCnt ->
+      error $ "`repeat` expects a positive number, but given: " <> show badCnt
+  metricOneTxHP :: RtDiag -> HostProc
+  metricOneTxHP !rtd !argExpr !pgs !exit = do
+    scheduleIO pgs (encountOneTxCompletion rtd) $ const $ return ()
+    exitProc pgs exit NilValue
 
