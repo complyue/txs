@@ -133,21 +133,28 @@ infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
       RefValue !tgtObj -> objGetAttr tgtObj attr $ exitProc pgs exit
       _                -> error "left-hand of dot-notation not an object"
     _ -> error "right-hand of dot-notation not an attribute addressor"
-  builtinOp "@" = evalExpr rhx pgs $ \case
-    StrValue !attr -> evalExpr lhx pgs $ \case
-      RefValue !tgtObj -> objGetAttr tgtObj attr $ exitProc pgs exit
-      _                -> error "left-hand of at-notation not an object"
-    _ -> error "right-hand of at-notation not a string"
+  builtinOp "@" = evalExpr rhx pgs $ \ !addrVal ->
+    let !tgtAttr = toString addrVal
+    in  evalExpr lhx pgs $ \case
+          RefValue !tgtObj -> objGetAttr tgtObj tgtAttr $ exitProc pgs exit
+          !badTgtVal ->
+            error
+              $  "left-hand of at-notation not an object but: "
+              <> show badTgtVal
   builtinOp "=" = evalExpr rhx pgs $ \ !rhv -> case lhx of
     Attr !attr -> objSetAttr (pgs'scope pgs) attr rhv $ exitProc pgs exit
     BinOp "." !tgtExpr (Attr !tgtAttr) -> evalExpr tgtExpr pgs $ \case
       RefValue !tgtObj -> objSetAttr tgtObj tgtAttr rhv $ exitProc pgs exit
       _                -> error "left-hand of dot-notation not an object"
-    BinOp "@" !tgtExpr !tgtAddr -> evalExpr tgtAddr pgs $ \case
-      StrValue !tgtAttr -> evalExpr tgtExpr pgs $ \case
-        RefValue !tgtObj -> objSetAttr tgtObj tgtAttr rhv $ exitProc pgs exit
-        _                -> error "left-hand of at-notation not an object"
-      _ -> error "right-hand of at-notation not a string"
+    BinOp "@" !tgtExpr !tgtAddr -> evalExpr tgtAddr pgs $ \ !addrVal ->
+      let !tgtAttr = toString addrVal
+      in  evalExpr tgtExpr pgs $ \case
+            RefValue !tgtObj ->
+              objSetAttr tgtObj tgtAttr rhv $ exitProc pgs exit
+            !badTgtVal ->
+              error
+                $  "left-hand of at-notation not an object but: "
+                <> show badTgtVal
     _ -> error $ "unexpected left-hand of assignment: " ++ show lhx
   builtinOp !sym = error $ "bug: unexpected operator: " ++ sym
 

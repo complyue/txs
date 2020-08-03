@@ -39,6 +39,9 @@
  - those not in any parenthesis will be evaluated in as many separate STM
  - transactions as possible (while strictly sequential). This is the major
  - experiment TXS intended to perform.
+ -
+ - When grouping of expressions are intended, while transaction composition
+ - not desirable, please resort to quoting with braces ({}).
  -}
 
 -- | 'print' is a builtin global procedure as you would expect as the norm.
@@ -59,20 +62,22 @@ obj = {};
 
 -- (.) is an operator mimicking the dot-notation in C and most OO languages
 -- (=) is an operator mimicking assignment in C and similar languages
-obj.name = "egg";
-obj.age = 1;
+( obj.name = "egg"; obj.age = 1; );
+-- be ware of transactional semantics of above parenthesis quoting
 
 -- (++) is the concatenate operator, joining 2 values in string form
-print ("At first it's the " ++ obj.name ++ " at " ++ obj.age);
+print $ "At first it's the " ++ obj.name ++ " at " ++ obj.age;
+-- `print` takes only one argument, so the use of ($) operator above
 
 -- (@) at-notation is rarely seen elsewhere, it's roughly mimicking `o[key]`
--- in JavaScript, that to get an attribute by possibly dynamicly computed key
--- (while the dynamic attribute key has to be a StrValue in TXS).
--- also similar is Python's `getattr()`, but TXS has it as a syntax.
-obj@"name" = "baby";
-obj@"age"  = obj.age + 1;
+-- in JavaScript, that to get/set an attribute by possibly dynamicly computed
+-- key. also similar to Python's `getattr()/setattr()`, but TXS has it more
+-- like a dedicated syntax, by implementation of the builtin operator.
+( obj@"name" = "baby"; obj@"age"  = obj.age + 1; );
+-- be ware of transactional semantics of above parenthesis quoting
 
-print ("Then it's the " ++ obj.name ++ " at " ++ obj@"age");
+print { "Then it's the " ++ obj.name ++ " at " ++ obj@"age" };
+-- alternatively, `print`'s argument can be quoted by braces as shown above
 
 -- that's almost all you need to know about TXS the language, and there are
 -- more builtin global procedures aiding the experiments with respect to 

@@ -9,28 +9,28 @@ db.cntr = 1;
 -- concur :: NumThreads -> Any -> NilValue
 --concur 3 $
 
--- | repeat the evaluation of following expression for the specified number of
--- times.
---
--- repeat :: CountNumber -> Any -> NilValue
+  -- | repeat the evaluation of following expression for the specified number
+  -- of times.
+  --
+  -- repeat :: CountNumber -> Any -> NilValue
   repeat 600000 {
     ( -- this tx makes the program scale poorly at concurrency, but a simple
       -- correct implementation. here we would diagnostic other issues, like
       -- excessive allocation made during interpreted execution of the script,
-      -- which prevents the up scaling at heap size, by excessive GC time, even
-      -- at light concurrency.
+      -- which prevents the up scaling at heap size, by excessive GC time,
+      -- even at light concurrency.
       ident = db.cntr;
       db.cntr = ident+1;
     );
     obj = {};
     obj.eid = ident;
     -- todo more obj attrs to fill
-    db @ (""++ident) = obj;
+    db@ident = obj;
 
--- | report the completion of one transaction, it's up to the implementation
--- of the host procedure for how statistics, like TPS over time, are gathered
--- and visualized
---
--- metricOneTx :: Any -> NilValue
+    -- | report the completion of one transaction, it's up to the
+    -- implementation of the host procedure for how statistics, like TPS over
+    -- time, are gathered and visualized
+    --
+    -- metricOneTx :: Any -> NilValue
     metricOneTx ();
   }
