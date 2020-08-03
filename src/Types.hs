@@ -9,14 +9,7 @@ import           Prelude
 
 import           GHC.Conc                       ( unsafeIOToSTM )
 
-import           System.IO
-import           GHC.Stats
-import           Control.Monad
-import           Control.Concurrent
 import           Control.Concurrent.STM
-import           Data.Time.Clock.System
-import           Data.Int
-import           Data.IORef
 import           Data.Unique
 import           Data.Dynamic
 

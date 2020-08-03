@@ -7,8 +7,6 @@ module Main where
 
 import           Prelude
 
-import           System.IO
-
 import           Types
 import           Parser
 import           RT

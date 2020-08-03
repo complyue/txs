@@ -8,24 +8,13 @@ module RT where
 
 import           Prelude
 
-import           GHC.Conc                       ( unsafeIOToSTM )
-
-import           GHC.Stats
-import           System.IO
-
 import           Control.Monad
-import           Control.Monad.Reader
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Concurrent.STM.TSem
-import           Data.Time.Clock.System
-import           Data.Int
-import           Data.IORef
-import           Data.Unique
 import           Data.Dynamic
 
 import           Types
-import           Parser
 import           Utils
 import           Diag
 
@@ -157,7 +146,7 @@ infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
                 $  "left-hand of at-notation not an object but: "
                 <> show badTgtVal
     _ -> error $ "unexpected left-hand of assignment: " ++ show lhx
-  builtinOp !sym = error $ "bug: unexpected operator: " ++ sym
+  builtinOp _ = error $ "bug: unexpected operator: " ++ sym
 
 
 defaultGlobals :: IO (Object, IO ())
@@ -208,9 +197,9 @@ defaultGlobals = do
       exitProc pgs exit NilValue
 
   concurHP :: HostProc
-  concurHP !concExpr !pgs !exit = if pgs'in'tx pgs
+  concurHP !nExpr !pgs !exit = if pgs'in'tx pgs
     then error "you don't issue `concur` from within a transaction"
-    else evalExpr concExpr pgs $ \case
+    else evalExpr nExpr pgs $ \case
       IntValue !concN | concN > 0 ->
         let concur1HP !concExpr !pgs1 !exit1 = do
               !concDoneSem <- newTSem $ fromIntegral $ 1 - concN
@@ -246,7 +235,7 @@ defaultGlobals = do
       error $ "`repeat` expects a positive number, but given: " <> show badCnt
 
   metricOneTxHP :: RtDiag -> HostProc
-  metricOneTxHP !rtd !argExpr !pgs !exit = do
+  metricOneTxHP !rtd _ !pgs !exit = do
     nextTxIO pgs (encountOneTxCompletion rtd) $ const $ return ()
     exitProc pgs exit NilValue
 

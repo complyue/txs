@@ -7,20 +7,13 @@ module Diag where
 
 import           Prelude
 
-import           GHC.Conc                       ( unsafeIOToSTM )
-
 import           GHC.Stats
 import           System.IO
 
 import           Control.Monad
-import           Control.Monad.Reader
-import           Control.Concurrent
-import           Control.Concurrent.STM
 import           Data.Time.Clock.System
 import           Data.Int
 import           Data.IORef
-import           Data.Unique
-import           Data.Dynamic
 
 
 data RtDiag = RtDiag {
