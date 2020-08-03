@@ -17,6 +17,7 @@ import           Control.Monad
 import           Control.Monad.Reader
 import           Control.Concurrent
 import           Control.Concurrent.STM
+import           Control.Concurrent.STM.TSem
 import           Data.Time.Clock.System
 import           Data.Int
 import           Data.IORef
@@ -42,7 +43,7 @@ evalExpr !expr !pgs !exit = case expr of
           hostProc rhx pgs $ \ !val -> exitProc pgs exit val
         Nothing -> case fromDynamic os of
           Just (hostIO :: HostIO) ->
-            scheduleIO pgs (hostIO rhx pgs exit) $ \() -> pure ()
+            nextTxIO pgs (hostIO rhx pgs exit) $ \() -> pure ()
           Nothing -> error $ "an object but not callable by expr: " <> show lhx
     _ -> error $ "not an object (to be called) by expr: " <> show lhx
   BinOp !opSym !lhx !rhx -> infixOp pgs opSym lhx rhx exit
@@ -93,10 +94,10 @@ exitProc !pgs !exit !val = if pgs'in'tx pgs
 -- performed after current transaction is committed. 
 --
 -- CAVEAT: This can break the transaction boundary intuited at scripting level,
---         if the stem exit of a 'HostProc' is only passed to 'scheduleIO' as
+--         if the stem exit of a 'HostProc' is only passed to 'nextTxIO' as
 --         the 'exitNextTx'.
-scheduleIO :: forall a . ProgState -> IO a -> (a -> STM ()) -> STM ()
-scheduleIO !pgs !act !exitNextTx = writeTQueue tq $ Left $ do
+nextTxIO :: forall a . ProgState -> IO a -> (a -> STM ()) -> STM ()
+nextTxIO !pgs !act !exitNextTx = writeTQueue tq $ Left $ do
   !result <- act
   atomically $ writeTQueue tq $ Right $! exitNextTx result
   where !tq = pgs'task'queue pgs
@@ -198,14 +199,41 @@ defaultGlobals = do
                           else error $ "* assertion failed: " <> toString assertMsg
               in  newObj' assert2HP $ exitProc pgs exit1 . RefValue
     in  newObj' assert1HP $ exitProc pgs exit . RefValue
+
   printHP :: HostProc
   printHP !argExpr !pgs !exit = evalExpr argExpr pgs $ \case
     NilValue -> exitProc pgs exit NilValue
     !arg     -> do
-      scheduleIO pgs (putStrLn $ toString arg) $ const $ return ()
+      nextTxIO pgs (putStrLn $ toString arg) $ const $ return ()
       exitProc pgs exit NilValue
+
   concurHP :: HostProc
-  concurHP !argExpr !pgs !exit = exitProc pgs exit NilValue
+  concurHP !concExpr !pgs !exit = if pgs'in'tx pgs
+    then error "you don't issue `concur` from within a transaction"
+    else evalExpr concExpr pgs $ \case
+      IntValue !concN | concN > 0 ->
+        let concur1HP !concExpr !pgs1 !exit1 = do
+              !concDoneSem <- newTSem $ fromIntegral $ 1 - concN
+              let !initScope = pgs'scope pgs
+                  forkConcur !cntr = if cntr < 1
+                    then return ()
+                    else
+                      (>> forkConcur (cntr - 1))
+                      $ flip forkFinally
+                             (const $ atomically $ signalTSem concDoneSem)
+                      $ do
+                          !thScopeVar <- newTVarIO undefined
+                          atomically $ objClone initScope $ writeTVar thScopeVar
+                          !thScope <- readTVarIO thScopeVar
+                          void $ runTXS thScope concExpr
+              -- it's checked we are not in a tx, safe for the exit to be
+              -- continued onward from next tx
+              nextTxIO pgs (forkConcur concN) $ const $ do
+                waitTSem concDoneSem
+                exitProc pgs1 exit1 NilValue
+        in  newObj' concur1HP $ exitProc pgs exit . RefValue
+      !badConcN -> error $ "invalid concurrency number: " <> show badConcN
+
   repeatHP :: HostProc
   repeatHP !argExpr !pgs !exit = evalExpr argExpr pgs $ \case
     IntValue !cnt | cnt >= 0 ->
@@ -216,8 +244,9 @@ defaultGlobals = do
       in  newObj' repeat1 $ exitProc pgs exit . RefValue
     !badCnt ->
       error $ "`repeat` expects a positive number, but given: " <> show badCnt
+
   metricOneTxHP :: RtDiag -> HostProc
   metricOneTxHP !rtd !argExpr !pgs !exit = do
-    scheduleIO pgs (encountOneTxCompletion rtd) $ const $ return ()
+    nextTxIO pgs (encountOneTxCompletion rtd) $ const $ return ()
     exitProc pgs exit NilValue
 

@@ -113,3 +113,10 @@ objSetAttr (Object _ !osv) !attr !val !exit =
           writeTVar attrVar val
           exit val
 
+objClone :: Object -> (Object -> STM ()) -> STM ()
+objClone (Object _ !osv) !exit = fromDynamic <$> readTVar osv >>= \case
+  Nothing                      -> error "bug: not a plain obj with hash store"
+  Just (hsv :: TVar HashStore) -> do
+    hsv' <- readTVar hsv >>= newTVar
+    newObj' hsv' exit
+

@@ -7,7 +7,7 @@ db.cntr = 1;
 -- fork, and wait all threads terminate.
 --
 -- concur :: NumThreads -> Any -> NilValue
---concur 3 $
+concur 3 $
 
   -- | repeat the evaluation of following expression for the specified number
   -- of times.
