@@ -173,7 +173,7 @@ defaultGlobals = do
   printHP NilValue !pgs !exit = atomically $ exitProc pgs exit NilValue
   printHP !arg     !pgs !exit = do
     putStrLn (toString arg)
-    atomically $ exitProc pgs exit arg
+    atomically $ exitProc pgs exit NilValue
   concurHP :: HostProc
   concurHP !arg !pgs !exit = undefined
   repeatHP :: HostProc
