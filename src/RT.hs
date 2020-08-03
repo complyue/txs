@@ -147,28 +147,28 @@ infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
 defaultGlobals :: IO Object
 defaultGlobals = do
   !globalsVar <- newTVarIO undefined
-  atomically $ newObj $ \ !globals -> do
-    writeTVar globalsVar globals
-    newObj' printHP $ \ !printCHO ->
-      objSetAttr globals "print" (RefValue printCHO)
-        $ const
-        $ newObj' concurHP
-        $ \ !concurCHO ->
-            objSetAttr globals "concur" (RefValue concurCHO)
-              $ const
-              $ newObj' repeatHP
-              $ \ !repeatCHO ->
-                  objSetAttr globals "repeat" (RefValue repeatCHO)
-                    $ const
-                    $ newObj' metricTotalHP
-                    $ \ !metricTotalCHO ->
-                        objSetAttr globals
-                                   "metricTotal"
-                                   (RefValue metricTotalCHO)
-                          $ const
-                          $ return ()
+  atomically $ newObj $ \ !globals ->
+    seqcontSTM
+        [ \ !exit ->
+            newObj'' dhp $ \ !hpo -> objSetAttr globals nm (RefValue hpo) exit
+        | (nm, dhp) <-
+          [ ("assert"     , toDyn assertHP)
+          , ("print"      , toDyn printHP)
+          , ("concur"     , toDyn concurHP)
+          , ("repeat"     , toDyn repeatHP)
+          , ("metricOneTx", toDyn metricOneTxHP)
+          ]
+        ]
+      $ const
+      $ writeTVar globalsVar globals
   readTVarIO globalsVar
  where
+  assertHP :: HostProc -- manual currying implemented here
+  assertHP !arg !pgs !exit = newObj' assert1HP $ exitProc pgs exit . RefValue
+   where
+    assert1HP !arg1 !pgs1 !exit1 = if arg1 == arg
+      then exitProc pgs1 exit1 $ StrValue " * assertion passed *"
+      else error "* assertion failed *"
   printHP :: HostIO
   printHP NilValue !pgs !exit = atomically $ exitProc pgs exit NilValue
   printHP !arg     !pgs !exit = do
@@ -178,5 +178,14 @@ defaultGlobals = do
   concurHP !arg !pgs !exit = undefined
   repeatHP :: HostProc
   repeatHP !arg !pgs !exit = undefined
-  metricTotalHP :: HostProc
-  metricTotalHP !arg !pgs !exit = undefined
+  metricOneTxHP :: HostProc
+  metricOneTxHP !arg !pgs !exit = undefined
+
+
+seqcontSTM :: forall a . [(a -> STM ()) -> STM ()] -> ([a] -> STM ()) -> STM ()
+seqcontSTM !xs !exit = go xs []
+ where
+  go :: [(a -> STM ()) -> STM ()] -> [a] -> STM ()
+  go []         ys = exit $! reverse $! ys
+  go (x : rest) ys = x $ \y -> go rest (y : ys)
+

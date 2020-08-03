@@ -68,11 +68,15 @@ instance Ord Object where
   compare (Object !x'id _) (Object !y'id _) = compare x'id y'id
 
 
-newObj' :: Typeable a => a -> (Object -> STM ()) -> STM ()
-newObj' !objStore !exit = do
+newObj'' :: Dynamic -> (Object -> STM ()) -> STM ()
+newObj'' !dd !exit = do
   !u <- unsafeIOToSTM newUnique
-  !d <- newTVar $ toDyn objStore
+  !d <- newTVar dd
   exit $ Object u d
+
+newObj' :: Typeable a => a -> (Object -> STM ()) -> STM ()
+newObj' !objStore = newObj'' (toDyn objStore)
+
 
 -- mockup of an insertion-order-preserving dict used in realworld case,
 -- which being `TVar (HashMap AttrVal Int)` where the Int be addressing a
@@ -81,7 +85,7 @@ type HashStore = Map AttrId (TVar AttrVal)
 
 newObj :: (Object -> STM ()) -> STM ()
 newObj !exit = do
-  osv <- newTVar (Map.empty :: HashStore)
+  !osv <- newTVar (Map.empty :: HashStore)
   newObj' osv exit
 
 objGetAttr :: Object -> AttrId -> (AttrVal -> STM ()) -> STM ()
