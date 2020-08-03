@@ -170,12 +170,20 @@ defaultGlobals = do
   readTVarIO globalsVar
  where
   assertHP :: HostProc -- manual currying implemented here
-  assertHP !argExpr !pgs !exit = evalExpr argExpr pgs $ \ !arg -> do
-    let assert1HP !argExpr1 !pgs1 !exit1 = evalExpr argExpr1 pgs $ \ !arg1 ->
-          if arg1 == arg
-            then exitProc pgs1 exit1 $ StrValue " * assertion passed *"
-            else error "* assertion failed *"
-    newObj' assert1HP $ exitProc pgs exit . RefValue
+  assertHP !msgExpr !pgs !exit = evalExpr msgExpr pgs $ \ !assertMsg ->
+    let assert1HP !expectExpr !pgs1 !exit1 =
+            evalExpr expectExpr pgs1 $ \ !expectVal ->
+              let assert2HP !targetExpr !pgs2 !exit2 =
+                      evalExpr targetExpr pgs2 $ \ !targetVal ->
+                        if targetVal == expectVal
+                          then
+                            exitProc pgs2 exit2
+                            $  StrValue
+                            $  " * assertion passed: "
+                            <> toString assertMsg
+                          else error $ "* assertion failed: " <> toString assertMsg
+              in  newObj' assert2HP $ exitProc pgs exit1 . RefValue
+    in  newObj' assert1HP $ exitProc pgs exit . RefValue
   printHP :: HostProc
   printHP !argExpr !pgs !exit = evalExpr argExpr pgs $ \case
     NilValue -> exitProc pgs exit NilValue
