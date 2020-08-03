@@ -19,7 +19,8 @@ main = do
   !src <- getContents
   let !ast = parseTXS src
 
-  -- print ast
+  putStrLn $ " * Program parsed as: " <> show ast
+  putStrLn " *-=TransactionScript=-*"
 
   !globals <- defaultGlobals
 
@@ -27,6 +28,6 @@ main = do
 
   case result of
     NilValue      -> pure ()
-    StrValue !msg -> putStrLn msg
-    _             -> print result
+    StrValue !msg -> putStrLn $ " * Program result string: " <> msg
+    _             -> putStrLn $ " * Program result value: " <> show result
 

@@ -42,11 +42,8 @@ evalExpr !expr !pgs !exit = case expr of
         Nothing -> case fromDynamic os of
           Just (hostIO :: HostIO) ->
             scheduleIO pgs (hostIO rhx pgs exit) $ \() -> pure ()
-          -- the tricky treat, make it as if a sequence, when left-hand is not a
-          -- callable host object
-          Nothing -> evalExpr rhx pgs exit
-    -- ditto, left-hand is even not an object
-    _ -> evalExpr rhx pgs exit
+          Nothing -> error $ "an object but not callable by expr: " <> show lhx
+    _ -> error $ "not an object (to be called) by expr: " <> show lhx
   BinOp !opSym !lhx !rhx -> infixOp pgs opSym lhx rhx exit
   LitObj                 -> newObj $ \ !obj -> exitProc pgs exit $ RefValue obj
   LitInt !val            -> exitProc pgs exit $ IntValue val
@@ -54,6 +51,7 @@ evalExpr !expr !pgs !exit = case expr of
   LitNil                 -> exitProc pgs exit NilValue
   Attr !attr ->
     objGetAttr (pgs'scope pgs) attr $ \ !val -> exitProc pgs exit val
+  Brace !exprInBlock -> evalExpr exprInBlock pgs exit
 
 
 runTXS :: Object -> Expr -> IO AttrVal
@@ -106,6 +104,7 @@ scheduleIO !pgs !act !exitNextTx = writeTQueue tq $ Left $ do
 infixOp :: ProgState -> String -> Expr -> Expr -> (AttrVal -> STM ()) -> STM ()
 infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
  where
+  builtinOp ";" = evalExpr lhx pgs $ const $ evalExpr rhx pgs exit
   builtinOp "+" = evalExpr lhx pgs $ \case
     IntValue !lhi -> evalExpr rhx pgs $ \case
       IntValue !rhi -> exitProc pgs exit $ IntValue $ lhi + rhi

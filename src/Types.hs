@@ -35,6 +35,7 @@ data Expr = Attr !String
           | BinOp !String !Expr !Expr
           | FnApp !Expr !Expr
           | Paren !Expr
+          | Brace !Expr
   deriving (Show)
 
 
