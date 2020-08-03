@@ -22,12 +22,13 @@ main = do
   putStrLn $ " * Program parsed as: " <> show ast
   putStrLn " *-=TransactionScript=-*"
 
-  !globals <- defaultGlobals
+  (!globals, !summarize) <- defaultGlobals
 
-  !result  <- runTXS globals ast
+  !result                <- runTXS globals ast
 
   case result of
     NilValue      -> pure ()
     StrValue !msg -> putStrLn $ " * Program result string: " <> msg
     _             -> putStrLn $ " * Program result value: " <> show result
 
+  summarize

@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module RT where
@@ -151,10 +152,10 @@ infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
   builtinOp !sym = error $ "bug: unexpected operator: " ++ sym
 
 
-defaultGlobals :: IO Object
+defaultGlobals :: IO (Object, IO ())
 defaultGlobals = do
 
-  !rtd        <- createRuntimeDiagnostic 10
+  !rtd        <- createRuntimeDiagnostic 3
 
   !globalsVar <- newTVarIO undefined
   atomically $ newObj $ \ !globals ->
@@ -171,7 +172,7 @@ defaultGlobals = do
         ]
       $ const
       $ writeTVar globalsVar globals
-  readTVarIO globalsVar
+  (, summarizeDiagnostic rtd) <$> readTVarIO globalsVar
 
  where
 
