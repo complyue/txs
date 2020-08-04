@@ -1,11 +1,11 @@
 
 conc = 3;
-total'txc = 360000;
+total'txc = 36000;
 
 db = {};
 
 print $ "Populating ...";
-concur 2 $ repeat { total'txc / 2 } {
+concur 5 $ repeat { total'txc / 5 } $ repeat 30 {
 
   oid = guid ();
 
@@ -24,9 +24,11 @@ print $ "Scanning among " ++ obj'cnt ++ " objects using concurrency: " ++ conc;
 resetMetrics();
 concur conc $ repeat { total'txc / conc } {
 
-  oid = 1 + guid() % obj'cnt;
-  obj = db@oid;
-  assert "object exists" oid (obj.oid);
+  repeat 30 {
+    oid = 1 + guid() % obj'cnt;
+    obj = db@oid;
+    assert "object exists" oid (obj.oid);
+  };
 
   metricOneTx ();
   
