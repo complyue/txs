@@ -1,16 +1,17 @@
 
--- put a db object into the shared global scope
+-- put the db object into the global scope, before `concur` copies it
+-- for each thread to start running concurrently
 db = {};
 db.cntr = 1;
 
 -- | fork more threads each with a copy of the global scope at the time of the
--- fork, and wait all threads terminate.
+-- fork, and wait all threads terminate before return.
 --
 -- concur :: NumThreads -> Any -> NilValue
 concur 3 $
 
-  -- | repeat the evaluation of following expression for the specified number
-  -- of times.
+  -- | repeat the evaluation of its argument expression, for the specified
+  -- number of times.
   --
   -- repeat :: CountNumber -> Any -> NilValue
   repeat 600000 {
@@ -28,8 +29,8 @@ concur 3 $
     db@ident = obj;
 
     -- | report the completion of one transaction, it's up to the
-    -- implementation of the host procedure for how statistics, like TPS over
-    -- time, are gathered and visualized
+    -- implementation of the host procedure that, how statistics, like TPS
+    -- over time, are gathered and visualized.
     --
     -- metricOneTx :: Any -> NilValue
     metricOneTx ();
