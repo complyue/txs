@@ -1,30 +1,34 @@
 
+conc = 6;
+total'txc = 360000;
+
 -- put the db object into the global scope, before `concur` copies it
 -- for each thread to start running concurrently
 db = {};
 
+print $ "Using concurrency: " ++ conc;
 -- | fork more threads each with a copy of the global scope at the time of the
 -- fork, and wait all threads terminate before return.
 --
 -- concur :: NumThreads -> Any -> NilValue
-concur 3 $
+concur conc $
 
   -- | repeat the evaluation of its argument expression, for the specified
   -- number of times.
   --
   -- repeat :: CountNumber -> Any -> NilValue
-  repeat 600000 {
+  repeat { total'txc / conc } {
 
     -- assign one global unique identifier
     --
     -- guid :: Any -> IntValue
-    ident = guid ();
+    oid = guid ();
 
     (
       obj = {};
-      obj.eid = ident;
+      obj.oid = oid;
       -- todo more obj attrs to fill
-      db@ident = obj;
+      db@oid = obj;
     );
 
     -- | report the completion of one transaction, it's up to the

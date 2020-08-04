@@ -12,7 +12,7 @@ concur conc $
     fsoid = guid ();
     (
       fso = {};
-      fso.eid = fsoid;
+      fso.oid = fsoid;
       fso.features = {};
       db@fsoid = fso;
     );
@@ -23,7 +23,7 @@ concur conc $
       foid = guid ();
       (
         fo = {};
-        fo.eid = foid;
+        fo.oid = foid;
         fo.owning'set = fso;
         fso.features@foid = fo;
         db@foid = fo;
