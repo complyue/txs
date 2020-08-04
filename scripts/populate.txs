@@ -1,6 +1,6 @@
 
 conc = 6;
-total'txc = 360000;
+total'txc = 36000;
 
 -- put the db object into the global scope, before `concur` copies it
 -- for each thread to start running concurrently
@@ -19,18 +19,22 @@ concur conc $
   --
   -- repeat :: CountNumber -> Any -> NilValue
   repeat { total'txc / conc } {
+    repeat 30 { -- 30 objets per (metric-wise) TX
 
-    -- assign one global unique identifier
-    --
-    -- guid :: Any -> IntValue
-    oid = guid ();
+      -- assign one global unique identifier
+      -- this can not be in a TX block
+      --
+      -- guid :: Any -> IntValue
+      oid = guid ();
 
-    (
-      obj = {};
-      obj.oid = oid;
-      -- todo more obj attrs to fill
-      db@oid = obj;
-    );
+      ( -- one STM TX block per single object insertion
+        obj = {};
+        obj.oid = oid;
+        -- todo more obj attrs to fill
+        db@oid = obj;
+      );
+
+    };
 
     -- | report the completion of one transaction, it's up to the
     -- implementation of the host procedure that, how statistics, like TPS
@@ -38,5 +42,10 @@ concur conc $
     --
     -- metricOneTx :: Any -> NilValue
     metricOneTx ();
+
+    -- | Suspends the current thread for a given number of microseconds
+    --
+    -- sleep :: IntValue -> NilValue
+    sleep 1000;
   
-  }
+  };
