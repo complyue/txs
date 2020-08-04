@@ -105,8 +105,15 @@ An empty parenthesis is parsed the same as a `nil` literal, for procedures
 don't really care about any argument, while they have to take one for
 convention of the call, syntactically suffixing it with () is eye-eazing as
 the intuition of function call from **C** and similar languages is maintained,
-that's to say, `guid()` parses exactly the same as `guid nil`, choose the
-form you'd like.
+that's to say:
+
+- `guid()`
+
+parses & executes exactly the same as
+
+- `guid nil`
+
+You can choose the form you'd like.
 
 ### Mutability
 
