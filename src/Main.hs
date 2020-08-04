@@ -17,8 +17,8 @@ main = do
   !src <- getContents
   let !ast = parseTXS src
 
-  putStrLn $ " * Program parsed as: " <> show ast
-  putStrLn " *-=TransactionScript=-*"
+  -- putStrLn $ " * Program parsed as: " <> show ast
+  -- putStrLn " *-=TransactionScript=-*"
 
   (!globals, !summarize) <- defaultGlobals
 
