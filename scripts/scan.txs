@@ -1,11 +1,16 @@
 
-conc = 3;
-total'txc = 36000;
+conc = 6;
+objs'per'tx = 10;
+
+sleep'per'tx = 1000; -- in microseconds, per (metric-wise) TX
+total'objs = 1080000;
+
+total'txc = total'objs / objs'per'tx;
 
 db = {};
 
 print $ "Populating ...";
-concur 5 $ repeat { total'txc / 5 } $ repeat 30 {
+concur 5 $ repeat { total'objs / 5 } {
 
   oid = guid ();
 
@@ -22,16 +27,20 @@ obj'cnt = guid() - 1;
 
 print $ "Scanning among " ++ obj'cnt ++ " objects using concurrency: " ++ conc;
 resetMetrics();
-concur conc $ repeat { total'txc / conc } {
+concur conc {
+  oid = 0; -- thread local counter
 
-  repeat 30 {
-    oid = 1 + guid() % obj'cnt;
-    obj = db@oid;
-    assert "object exists" oid (obj.oid);
+  repeat { total'txc / conc } {
+
+    repeat objs'per'tx {
+      oid = oid + 1;
+      obj = db@oid;
+      assert "object exists" oid (obj.oid);
+    };
+
+    metricOneTx ();
+    
+    sleep sleep'per'tx;
+
   };
-
-  metricOneTx ();
-  
-  sleep 1000; -- delay a millisecond
-
 };

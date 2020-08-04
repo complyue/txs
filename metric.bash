@@ -8,6 +8,6 @@ cd build
 
 ghc --make -Wall -threaded -rtsopts -prof -o txs -outputdir . -stubdir . -i../src ../src/Main.hs && (
 
-  ./txs +RTS -N6 -A32m -H256m -qg -I0 -M5g -T -s <../scripts/"${SCRIPT}".txs
+  ./txs +RTS -N10 -A32m -H256m -qg -I0 -M5g -T -s <../scripts/"${SCRIPT}".txs
 
 )
