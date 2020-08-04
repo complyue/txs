@@ -12,6 +12,8 @@ import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Concurrent.STM.TSem
+import           Data.IORef
+import           Data.Int
 import           Data.Dynamic
 
 import           Types
@@ -30,10 +32,7 @@ evalExpr !expr !pgs !exit = case expr of
         -- a callable host object, make the strict function application
         Just (hostProc :: HostProc) ->
           hostProc rhx pgs $ \ !val -> exitProc pgs exit val
-        Nothing -> case fromDynamic os of
-          Just (hostIO :: HostIO) ->
-            nextTxIO pgs (hostIO rhx pgs exit) $ \() -> pure ()
-          Nothing -> error $ "an object but not callable by expr: " <> show lhx
+        Nothing -> error $ "an object but not callable by expr: " <> show lhx
     _ -> error $ "not an object (to be called) by expr: " <> show lhx
   BinOp !opSym !lhx !rhx -> infixOp pgs opSym lhx rhx exit
   LitObj                 -> newObj $ \ !obj -> exitProc pgs exit $ RefValue obj
@@ -72,23 +71,29 @@ data ProgState = ProgState {
   }
 
 type HostProc = Expr -> ProgState -> (AttrVal -> STM ()) -> STM ()
-type HostIO = Expr -> ProgState -> (AttrVal -> STM ()) -> IO ()
 
+-- | Helper for proper CPS exit from within a 'HostProc'
+--
+-- Should join the continuation if the script code has requested a transaction
+-- block (by parenthesis quoting a sequence of expressions), otherwise should
+-- enqueue the continuation for it to be executed in a separate, subsequent STM
+-- transaction.
 exitProc :: ProgState -> (AttrVal -> STM ()) -> AttrVal -> STM ()
 exitProc !pgs !exit !val = if pgs'in'tx pgs
   then exit val
   else writeTQueue (pgs'task'queue pgs) $ Right $! exit val
 
--- | To trigger IO action from a 'HostProc', note the 'IO' action will only be
--- performed after current transaction is committed. 
+-- | Schedule an IO action to initiate the subsequent STM transaction, it'll be
+-- performed after current STM transaction is committed.
 --
 -- CAVEAT: This can break the transaction boundary intuited at scripting level,
---         if the stem exit of a 'HostProc' is only passed to 'nextTxIO' as
---         the 'exitNextTx'.
-nextTxIO :: forall a . ProgState -> IO a -> (a -> STM ()) -> STM ()
-nextTxIO !pgs !act !exitNextTx = writeTQueue tq $ Left $ do
+--         if the stem exit of a 'HostProc' is only passed to 'txContIO' as
+--         the 'initNextTx', "pgs'in'tx" state should be checked being False
+--         for doing that safely.
+txContIO :: forall a . ProgState -> IO a -> (a -> STM ()) -> STM ()
+txContIO !pgs !act !initNextTx = writeTQueue tq $ Left $ do
   !result <- act
-  atomically $ writeTQueue tq $ Right $! exitNextTx result
+  atomically $ writeTQueue tq $ Right $! initNextTx result
   where !tq = pgs'task'queue pgs
 
 
@@ -152,6 +157,8 @@ infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
 defaultGlobals :: IO (Object, IO ())
 defaultGlobals = do
 
+  !guidCntr   <- newIORef (1 :: Int64)
+
   !rtd        <- createRuntimeDiagnostic 3
 
   !globalsVar <- newTVarIO undefined
@@ -162,6 +169,7 @@ defaultGlobals = do
         | (nm, hp) <-
           [ ("assert"     , assertHP)
           , ("print"      , printHP)
+          , ("guid"       , guidHP guidCntr)
           , ("concur"     , concurHP)
           , ("repeat"     , repeatHP)
           , ("metricOneTx", metricOneTxHP rtd)
@@ -193,8 +201,14 @@ defaultGlobals = do
   printHP !argExpr !pgs !exit = evalExpr argExpr pgs $ \case
     NilValue -> exitProc pgs exit NilValue
     !arg     -> do
-      nextTxIO pgs (putStrLn $ toString arg) $ const $ return ()
+      txContIO pgs (putStrLn $ toString arg) $ const $ return ()
       exitProc pgs exit NilValue
+
+  guidHP :: IORef Int64 -> HostProc
+  guidHP !guidCntr _ !pgs !exit = if pgs'in'tx pgs
+    then error "you don't issue `guid` from within a transaction"
+    else txContIO pgs (atomicModifyIORef' guidCntr $ \ !c -> (c + 1, c))
+      $ \ !guid -> exitProc pgs exit $ IntValue $ fromIntegral guid
 
   concurHP :: HostProc
   concurHP !nExpr !pgs !exit = if pgs'in'tx pgs
@@ -217,7 +231,7 @@ defaultGlobals = do
                           void $ runTXS thScope concExpr
               -- it's checked we are not in a tx, safe for the exit to be
               -- continued onward from next tx
-              nextTxIO pgs (forkConcur concN) $ const $ do
+              txContIO pgs (forkConcur concN) $ const $ do
                 waitTSem concDoneSem
                 exitProc pgs1 exit1 NilValue
         in  newObj' concur1HP $ exitProc pgs exit . RefValue
@@ -236,6 +250,6 @@ defaultGlobals = do
 
   metricOneTxHP :: RtDiag -> HostProc
   metricOneTxHP !rtd _ !pgs !exit = do
-    nextTxIO pgs (encountOneTxCompletion rtd) $ const $ return ()
+    txContIO pgs (encountOneTxCompletion rtd) $ const $ return ()
     exitProc pgs exit NilValue
 

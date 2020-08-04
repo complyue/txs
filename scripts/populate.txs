@@ -15,14 +15,12 @@ concur 3 $
   --
   -- repeat :: CountNumber -> Any -> NilValue
   repeat 600000 {
-    ( -- this tx makes the program scale poorly at concurrency, but a simple
-      -- correct implementation. here we would diagnostic other issues, like
-      -- excessive allocation made during interpreted execution of the script,
-      -- which prevents the up scaling at heap size, by excessive GC time,
-      -- even at light concurrency.
-      ident = db.cntr;
-      db.cntr = ident+1;
-    );
+
+    -- assign one global unique identifier
+    --
+    -- guid :: Any -> IntValue
+    ident = guid ();
+
     obj = {};
     obj.eid = ident;
     -- todo more obj attrs to fill
@@ -34,4 +32,5 @@ concur 3 $
     --
     -- metricOneTx :: Any -> NilValue
     metricOneTx ();
+  
   }
