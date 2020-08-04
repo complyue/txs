@@ -6,7 +6,8 @@ total'txc = 360000;
 -- for each thread to start running concurrently
 db = {};
 
-print $ "Using concurrency: " ++ conc;
+print $ "Populating using concurrency: " ++ conc;
+resetMetrics();
 -- | fork more threads each with a copy of the global scope at the time of the
 -- fork, and wait all threads terminate before return.
 --
