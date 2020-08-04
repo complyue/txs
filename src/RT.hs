@@ -236,12 +236,21 @@ defaultGlobals = do
         let concur1HP !concExpr !pgs1 !exit1 = do
               !concDoneSem <- newTSem $ fromIntegral $ 1 - concN
               let !initScope = pgs'scope pgs
+                  reportThreadError !anywayAct = \case
+                    Left !err -> do
+                      !thId <- myThreadId
+                      putStrLn $ " * " <> show thId <> " - " <> show err
+                      anywayAct
+                    Right _ -> anywayAct
                   forkConcur !cntr = if cntr < 1
                     then return ()
                     else
                       (>> forkConcur (cntr - 1))
-                      $ flip forkFinally
-                             (const $ atomically $ signalTSem concDoneSem)
+                      $ flip
+                          forkFinally
+                          (reportThreadError $ atomically $ signalTSem
+                            concDoneSem
+                          )
                       $ do
                           !thScopeVar <- newTVarIO undefined
                           atomically $ objClone initScope $ writeTVar thScopeVar
