@@ -81,7 +81,7 @@ summarizeDiagnostic (RtDiag !prog'start !total'cntr _ _ _) = do
   !cnt                       <- readIORef total'cntr
   let !costSeconds = fromIntegral $ finishTime - startTime
   putStrLn
-    $  "Totally "
+    $  "Total "
     <> show cnt
     <> " transactions processed in "
     <> show costSeconds

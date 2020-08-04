@@ -2,7 +2,6 @@
 -- put the db object into the global scope, before `concur` copies it
 -- for each thread to start running concurrently
 db = {};
-db.cntr = 1;
 
 -- | fork more threads each with a copy of the global scope at the time of the
 -- fork, and wait all threads terminate before return.
@@ -21,10 +20,12 @@ concur 3 $
     -- guid :: Any -> IntValue
     ident = guid ();
 
-    obj = {};
-    obj.eid = ident;
-    -- todo more obj attrs to fill
-    db@ident = obj;
+    (
+      obj = {};
+      obj.eid = ident;
+      -- todo more obj attrs to fill
+      db@ident = obj;
+    );
 
     -- | report the completion of one transaction, it's up to the
     -- implementation of the host procedure that, how statistics, like TPS
