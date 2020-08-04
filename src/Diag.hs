@@ -17,7 +17,7 @@ import           Data.IORef
 
 
 data RtDiag = RtDiag {
-    rtd'prog'start :: !(IORef Int64)
+    rtd'diag'start :: !(IORef Int64)
   , rtd'total'cntr :: !(IORef Int)
   , rtd'bat'cntr :: !(IORef Int)
   , rtd'bat'start :: !(IORef Int64)
@@ -28,17 +28,26 @@ createRuntimeDiagnostic :: Int -> IO RtDiag
 createRuntimeDiagnostic !metricMinSec = do
   MkSystemTime !epochTime _ <- getSystemTime
 
-  !total'cntr               <- newIORef 0
-  !bat'cntr                 <- newIORef 0
-  !prog'start               <- newIORef epochTime
+  !diag'start               <- newIORef epochTime
   !bat'start                <- newIORef epochTime
 
-  return $ RtDiag { rtd'prog'start         = prog'start
+  !total'cntr               <- newIORef 0
+  !bat'cntr                 <- newIORef 0
+
+  return $ RtDiag { rtd'diag'start         = diag'start
                   , rtd'total'cntr         = total'cntr
                   , rtd'bat'cntr           = bat'cntr
                   , rtd'bat'start          = bat'start
                   , rtd'metric'min'seconds = metricMinSec
                   }
+
+resetDiagnostic :: RtDiag -> IO ()
+resetDiagnostic (RtDiag !diag'start !total'cntr !bat'cntr !bat'start _) = do
+  MkSystemTime !epochTime _ <- getSystemTime
+  writeIORef diag'start epochTime
+  writeIORef bat'start  epochTime
+  writeIORef total'cntr 0
+  writeIORef bat'cntr   0
 
 encountOneTxCompletion :: RtDiag -> IO ()
 encountOneTxCompletion (RtDiag _ !total'cntr !bat'cntr !bat'start !min'sec) =
@@ -75,9 +84,9 @@ encountOneTxCompletion (RtDiag _ !total'cntr !bat'cntr !bat'start !min'sec) =
         hFlush stdout
 
 summarizeDiagnostic :: RtDiag -> IO ()
-summarizeDiagnostic (RtDiag !prog'start !total'cntr _ _ _) = do
+summarizeDiagnostic (RtDiag !diag'start !total'cntr _ _ _) = do
   MkSystemTime !finishTime _ <- getSystemTime
-  !startTime                 <- readIORef prog'start
+  !startTime                 <- readIORef diag'start
   !cnt                       <- readIORef total'cntr
   let !costSeconds = fromIntegral $ finishTime - startTime
   putStrLn

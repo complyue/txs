@@ -121,6 +121,11 @@ infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
       IntValue !rhi -> exitProc pgs exit $ IntValue $ div lhi rhi
       _             -> error "right-hand to (/) not a number"
     _ -> error "left-hand to (/) not a number"
+  builtinOp "%" = evalExpr lhx pgs $ \case
+    IntValue !lhi -> evalExpr rhx pgs $ \case
+      IntValue !rhi -> exitProc pgs exit $ IntValue $ mod lhi rhi
+      _             -> error "right-hand to (%) not a number"
+    _ -> error "left-hand to (%) not a number"
   builtinOp "++" = evalExpr lhx pgs $ \ !lhv -> evalExpr rhx pgs
     $ \ !rhv -> exitProc pgs exit $ StrValue $ toString lhv ++ toString rhv
   builtinOp "." = case rhx of
@@ -167,12 +172,13 @@ defaultGlobals = do
         [ \ !exit ->
             newObj' hp $ \ !hpo -> objSetAttr globals nm (RefValue hpo) exit
         | (nm, hp) <-
-          [ ("assert"     , assertHP)
-          , ("print"      , printHP)
-          , ("guid"       , guidHP guidCntr)
-          , ("concur"     , concurHP)
-          , ("repeat"     , repeatHP)
-          , ("metricOneTx", metricOneTxHP rtd)
+          [ ("assert"      , assertHP)
+          , ("print"       , printHP)
+          , ("guid"        , guidHP guidCntr)
+          , ("concur"      , concurHP)
+          , ("repeat"      , repeatHP)
+          , ("resetMetrics", resetMetricsHP rtd)
+          , ("metricOneTx" , metricOneTxHP rtd)
           ]
         ]
       $ const
@@ -247,6 +253,11 @@ defaultGlobals = do
       in  newObj' repeat1 $ exitProc pgs exit . RefValue
     !badCnt ->
       error $ "`repeat` expects a positive number, but given: " <> show badCnt
+
+  resetMetricsHP :: RtDiag -> HostProc
+  resetMetricsHP !rtd _ !pgs !exit = if pgs'in'tx pgs
+    then error "you don't issue `resetMetrics` from within a transaction"
+    else txContIO pgs (resetDiagnostic rtd) $ const $ exit NilValue
 
   metricOneTxHP :: RtDiag -> HostProc
   metricOneTxHP !rtd _ !pgs !exit = do
