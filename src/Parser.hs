@@ -103,8 +103,8 @@ parseTXS !str = case parse txsParser "" str of
     ]
    where
     opsTable =
-      [ [Infix fap AssocLeft]
-      , [Infix (operator ".") AssocLeft, Infix (operator "@") AssocLeft]
+      [ [Infix (operator ".") AssocLeft, Infix (operator "@") AssocLeft]
+      , [Infix fap AssocLeft]
       , [ Infix (operator "*") AssocLeft
         , Infix (operator "/") AssocLeft
         , Infix (operator "%") AssocLeft

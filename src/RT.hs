@@ -8,6 +8,8 @@ module RT where
 
 import           Prelude
 
+import           GHC.Conc                       ( unsafeIOToSTM )
+
 import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
@@ -159,12 +161,10 @@ infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
   builtinOp _ = error $ "bug: unexpected operator: " ++ sym
 
 
-defaultGlobals :: IO (Object, IO ())
+defaultGlobals :: IO Object
 defaultGlobals = do
 
   !guidCntr   <- newIORef (1 :: Int64)
-
-  !rtd        <- createRuntimeDiagnostic 3
 
   !globalsVar <- newTVarIO undefined
   atomically $ newObj $ \ !globals ->
@@ -172,19 +172,18 @@ defaultGlobals = do
         [ \ !exit ->
             newObj' hp $ \ !hpo -> objSetAttr globals nm (RefValue hpo) exit
         | (nm, hp) <-
-          [ ("assert"      , assertHP)
-          , ("print"       , printHP)
-          , ("sleep"       , sleepHP)
-          , ("guid"        , guidHP guidCntr)
-          , ("concur"      , concurHP)
-          , ("repeat"      , repeatHP)
-          , ("resetMetrics", resetMetricsHP rtd)
-          , ("metricOneTx" , metricOneTxHP rtd)
+          [ ("assert" , assertHP)
+          , ("print"  , printHP)
+          , ("sleep"  , sleepHP)
+          , ("guid"   , guidHP guidCntr)
+          , ("concur" , concurHP)
+          , ("repeat" , repeatHP)
+          , ("diagKit", diagKitCtor)
           ]
         ]
       $ const
       $ writeTVar globalsVar globals
-  (, summarizeDiagnostic rtd) <$> readTVarIO globalsVar
+  readTVarIO globalsVar
 
  where
 
@@ -275,13 +274,56 @@ defaultGlobals = do
     !badCnt ->
       error $ "`repeat` expects a positive number, but given: " <> show badCnt
 
-  resetMetricsHP :: RtDiag -> HostProc
-  resetMetricsHP !rtd _ !pgs !exit = if pgs'in'tx pgs
-    then error "you don't issue `resetMetrics` from within a transaction"
-    else txContIO pgs (resetDiagnostic rtd) $ const $ exit NilValue
+
+  diagKitCtor :: HostProc
+  diagKitCtor !_argExpr !pgs !exit = newObj $ \ !kit -> do
+    !rtdsVar <- newTVar []
+    let
+      threadLocalDiagHP !batchSecondsExpr !pgs' !exit' =
+        evalExpr batchSecondsExpr pgs' $ \case
+          IntValue !bat'secs | bat'secs > 0 -> do
+            !rtd <- unsafeIOToSTM $ startRuntimeDiagnostic $ fromIntegral
+              bat'secs
+            modifyTVar' rtdsVar (rtd :)
+            newObj $ \ !tld ->
+              seqcontSTM
+                  [ \ !exit'' -> newObj' hp
+                      $ \ !hpo -> objSetAttr tld nm (RefValue hpo) exit''
+                  | (nm, hp) <-
+                    [ ("metricOneTx", metricOneTxHP rtd)
+                    , ("doneDiag"   , doneDiagHP rtd)
+                    ]
+                  ]
+                $ const
+                $ exitProc pgs' exit'
+                $ RefValue tld
+          !badBatchSecs ->
+            error $ "bad value for batchSeconds: " <> show badBatchSecs
+    seqcontSTM
+        [ \ !exit'' ->
+            newObj' hp $ \ !hpo -> objSetAttr kit nm (RefValue hpo) exit''
+        | (nm, hp) <-
+          [ ("threadLocalDiag", threadLocalDiagHP)
+          , ("summarize"      , summarizeDiag rtdsVar)
+          ]
+        ]
+      $ const
+      $ exitProc pgs exit
+      $ RefValue kit
 
   metricOneTxHP :: RtDiag -> HostProc
   metricOneTxHP !rtd _ !pgs !exit = do
     txContIO pgs (encountOneTxCompletion rtd) $ const $ return ()
+    exitProc pgs exit NilValue
+
+  doneDiagHP :: RtDiag -> HostProc
+  doneDiagHP !rtd _ !pgs !exit = do
+    txContIO pgs (doneRuntimeDiagnostic rtd) $ const $ return ()
+    exitProc pgs exit NilValue
+
+  summarizeDiag :: TVar [RtDiag] -> HostProc
+  summarizeDiag !rtdsVar _ !pgs !exit = do
+    !rtds <- readTVar rtdsVar
+    txContIO pgs (summarizeDiagnostic rtds) $ const $ return ()
     exitProc pgs exit NilValue
 

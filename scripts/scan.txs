@@ -4,9 +4,11 @@ objs'per'tx = 10;
 
 sleep'per'tx = 1000; -- in microseconds, per (metric-wise) TX
 total'objs = 1080000;
+batch'seconds = 3;
 
 total'txc = total'objs / objs'per'tx;
 
+diag = diagKit();
 db = {};
 
 print $ "Populating ...";
@@ -26,8 +28,8 @@ concur 5 $ repeat { total'objs / 5 } {
 obj'cnt = guid() - 1;
 
 print $ "Scanning among " ++ obj'cnt ++ " objects using concurrency: " ++ conc;
-resetMetrics();
 concur conc {
+  tld = diag.threadLocalDiag batch'seconds;
   oid = 0; -- thread local counter
 
   repeat { total'txc / conc } {
@@ -38,9 +40,11 @@ concur conc {
       assert "object exists" oid (obj.oid);
     };
 
-    metricOneTx ();
+    tld.metricOneTx();
     
-    sleep sleep'per'tx;
-
   };
+
+  tld.doneDiag();
 };
+
+diag.summarize();

@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+-- | data structures and routines for runtime diagnostics, not thread safe
 module Diag where
 
 import           Prelude
@@ -11,6 +12,7 @@ import           GHC.Stats
 import           System.IO
 
 import           Control.Monad
+import           Control.Concurrent
 import           Data.Time.Clock.System
 import           Data.Int
 import           Data.IORef
@@ -18,56 +20,59 @@ import           Data.IORef
 
 data RtDiag = RtDiag {
     rtd'diag'start :: !(IORef Int64)
+  , rtd'diag'finish :: !(IORef Int64)
   , rtd'total'cntr :: !(IORef Int)
-  , rtd'bat'cntr :: !(IORef Int)
   , rtd'bat'start :: !(IORef Int64)
-  , rtd'metric'min'seconds :: !Int
+  , rtd'bat'cntr :: !(IORef Int)
+  , rtd'bat'seconds :: !Int
   }
 
-createRuntimeDiagnostic :: Int -> IO RtDiag
-createRuntimeDiagnostic !metricMinSec = do
+
+startRuntimeDiagnostic :: Int -> IO RtDiag
+startRuntimeDiagnostic !batSeconds = do
   MkSystemTime !epochTime _ <- getSystemTime
 
   !diag'start               <- newIORef epochTime
-  !bat'start                <- newIORef epochTime
-
+  !diag'finish              <- newIORef 0
   !total'cntr               <- newIORef 0
+  !bat'start                <- newIORef epochTime
   !bat'cntr                 <- newIORef 0
 
-  return $ RtDiag { rtd'diag'start         = diag'start
-                  , rtd'total'cntr         = total'cntr
-                  , rtd'bat'cntr           = bat'cntr
-                  , rtd'bat'start          = bat'start
-                  , rtd'metric'min'seconds = metricMinSec
+  return $ RtDiag { rtd'diag'start  = diag'start
+                  , rtd'diag'finish = diag'finish
+                  , rtd'total'cntr  = total'cntr
+                  , rtd'bat'start   = bat'start
+                  , rtd'bat'cntr    = bat'cntr
+                  , rtd'bat'seconds = batSeconds
                   }
 
-resetDiagnostic :: RtDiag -> IO ()
-resetDiagnostic (RtDiag !diag'start !total'cntr !bat'cntr !bat'start _) = do
-  MkSystemTime !epochTime _ <- getSystemTime
-  writeIORef diag'start epochTime
-  writeIORef bat'start  epochTime
-  writeIORef total'cntr 0
-  writeIORef bat'cntr   0
+
+doneRuntimeDiagnostic :: RtDiag -> IO ()
+doneRuntimeDiagnostic (RtDiag _ !diag'finish _ _ _ _) = do
+  MkSystemTime !finishTime _ <- getSystemTime
+  writeIORef diag'finish finishTime
+
 
 encountOneTxCompletion :: RtDiag -> IO ()
-encountOneTxCompletion (RtDiag _ !total'cntr !bat'cntr !bat'start !min'sec) =
+encountOneTxCompletion (RtDiag _ _ !total'cntr !bat'start !bat'cntr !bat'sec) =
   do
+    modifyIORef' total'cntr (+ 1)
 
-    atomicModifyIORef' total'cntr $ \ !c -> (c + 1, ())
-
+    !bst                    <- readIORef bat'start
     MkSystemTime !curTime _ <- getSystemTime
-    !bt                     <- atomicModifyIORef' bat'start $ \ !bst ->
-      let !bt = fromIntegral (curTime - bst)
-      in  if bt < min'sec then (bst, 0) else (curTime, bt)
-    if bt < 1
-      then atomicModifyIORef' bat'cntr $ \ !c -> (c + 1, ())
+    let bt = fromIntegral $ curTime - bst
+    if bt < bat'sec
+      then modifyIORef' bat'cntr (+ 1)
       else do
-
-        !bc <- atomicModifyIORef' bat'cntr $ \ !c -> (0, c + 1)
+        writeIORef bat'start curTime
+        !bc <- readIORef bat'cntr
+        writeIORef bat'cntr 0
+        !thId <- myThreadId
+        putStr $ show thId
         if bc < bt
           then
-            putStr $ "Slow: " <> show bc <> " TX in " <> show bt <> " seconds"
-          else putStr $ "Fast: " <> show (bc `div` bt) <> " TPS"
+            putStr $ "\tSlow: " <> show bc <> " TX in " <> show bt <> " seconds"
+          else putStr $ "\tFast: " <> show (bc `div` bt) <> " TPS"
 
         getRTSStatsEnabled >>= \case
           True -> do
@@ -83,30 +88,40 @@ encountOneTxCompletion (RtDiag _ !total'cntr !bat'cntr !bat'start !min'sec) =
 
         hFlush stdout
 
-summarizeDiagnostic :: RtDiag -> IO ()
-summarizeDiagnostic (RtDiag !diag'start !total'cntr _ _ _) = do
-  MkSystemTime !finishTime _ <- getSystemTime
-  !startTime                 <- readIORef diag'start
-  !cnt                       <- readIORef total'cntr
-  let !costSeconds = fromIntegral $ finishTime - startTime
-  putStrLn
-    $  "Total "
-    <> show cnt
-    <> " transactions processed in "
-    <> show costSeconds
-    <> " seconds."
-  when (costSeconds > 0) $ putStrLn $ "Overall TPS: " <> show
-    (div cnt costSeconds)
 
-  getRTSStatsEnabled >>= \case
-    True -> do
-      !rtss <- getRTSStats
-      putStrLn
-        $  "Heap: "
-        <> show
-             (fromIntegral (max_live_bytes rtss) `div` (1024 * 1024 :: Int64))
-        <> " MB"
-    False -> pure ()
+summarizeDiagnostic :: [RtDiag] -> IO ()
+summarizeDiagnostic !rtds = doSum rtds 0 0
+ where
+  doSum [] !cnt !costSeconds = do
+    putStrLn
+      $  "Total "
+      <> show cnt
+      <> " transactions processed in "
+      <> show costSeconds
+      <> " seconds."
+    when (costSeconds > 0) $ putStrLn $ "Overall TPS: " <> show
+      (div cnt costSeconds)
 
-  hFlush stdout
+    getRTSStatsEnabled >>= \case
+      True -> do
+        !rtss <- getRTSStats
+        putStrLn
+          $  "Heap: "
+          <> show
+               (fromIntegral (max_live_bytes rtss) `div` (1024 * 1024 :: Int64))
+          <> " MB"
+      False -> pure ()
+
+    hFlush stdout
+  doSum (RtDiag !diag'start !diag'finish !total'cntr _ _ _ : rest) !cnt !costSeconds
+    = do
+      !startTime  <- readIORef diag'start
+      !finishTime <- readIORef diag'finish
+      !diagCnt    <- readIORef total'cntr
+      doSum rest (cnt + diagCnt)
+        $ (costSeconds +)
+        $ fromIntegral
+        $ finishTime
+        - startTime
+
 

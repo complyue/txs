@@ -15,6 +15,7 @@ matters a lot.
   - [Haskell style function application](#haskell-style-function-application)
     - [Currying](#currying)
     - [The unit is nil](#the-unit-is-nil)
+    - [Dot and At notation](#dot-and-at-notation)
 - [Mutability](#mutability)
 - [Execution Model](#execution-model)
 - [Transactional Semantics](#transactional-semantics)
@@ -86,8 +87,8 @@ it parses as function application, where you omit it by accident.
 
 ### Haskell style function application
 
-White space and (\$) are function application operators as in **Haskell**, as
-well they have highest and lowest precedence respectively in **TXS**.
+White space and (\$) are function application operators as in **Haskell**,
+having high and low precedence respectively.
 
 #### Currying
 
@@ -114,6 +115,29 @@ parses & executes exactly the same as
 - `guid nil`
 
 You can choose the form you'd like.
+
+#### Dot and At notation
+
+Here is the familar dot-notation as in **C** and many **OO** languages, i.e.
+
+- `obj.method`
+
+And here is also so called at-notation seldom seen elsewhere, i.e.
+
+- `obj@key`
+
+Where `key` is a dynamically determined value at runtime, similar to
+
+- `obj[key]`
+
+as in **JavaScript**. But the `(.)` and `(@)` are technically implemented just
+as infix operators. And for something like
+
+- `obj.method()`
+
+to parse and execute as intuitively expected, **dot** and **at** operators
+have even higher precedence than white space, which is function application
+operator.
 
 ## Mutability
 
