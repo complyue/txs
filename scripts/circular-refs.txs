@@ -1,0 +1,36 @@
+
+conc = 3;
+total'txc = 36000;
+
+db = {};
+print $ "Using concurrency: " ++ conc;
+concur conc $
+
+  repeat { total'txc / conc } {
+
+    -- create a feature set
+    fsoid = guid ();
+    (
+      fso = {};
+      fso.eid = fsoid;
+      fso.features = {};
+      db@fsoid = fso;
+    );
+
+    repeat 20 {
+
+      -- create a feature and put in the set
+      foid = guid ();
+      (
+        fo = {};
+        fo.eid = foid;
+        fo.owning'set = fso;
+        fso.features@foid = fo;
+        db@foid = fo;
+      );
+
+    };
+
+    metricOneTx ();
+
+  };
