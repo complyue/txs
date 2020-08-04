@@ -15,7 +15,7 @@ matters a lot.
   - [Haskell style function application](#haskell-style-function-application)
     - [Currying](#currying)
     - [The unit is nil](#the-unit-is-nil)
-  - [Mutability](#mutability)
+- [Mutability](#mutability)
 - [Execution Model](#execution-model)
 - [Transactional Semantics](#transactional-semantics)
 - [That's it](#thats-it)
@@ -115,7 +115,7 @@ parses & executes exactly the same as
 
 You can choose the form you'd like.
 
-### Mutability
+## Mutability
 
 Like an imperative language, you can assign values to objects as respective
 attributes, and overwrite an attribute with a new value. And object (held
