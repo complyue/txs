@@ -1,5 +1,5 @@
 
-conc = 6;
+conc = 3;
 total'txc = 360000;
 
 db = {};
@@ -7,16 +7,16 @@ db = {};
 print $ "Populating ...";
 concur 2 $ repeat { total'txc / 2 } {
 
-    oid = guid ();
+  oid = guid ();
 
-    (
-      obj = {};
-      obj.oid = oid;
-      -- todo more obj attrs to fill
-      db@oid = obj;
-    );
+  (
+    obj = {};
+    obj.oid = oid;
+    -- todo more obj attrs to fill
+    db@oid = obj;
+  );
 
-  };
+};
 
 obj'cnt = guid() - 1;
 
@@ -24,10 +24,12 @@ print $ "Scanning among " ++ obj'cnt ++ " objects using concurrency: " ++ conc;
 resetMetrics();
 concur conc $ repeat { total'txc / conc } {
 
-    oid = 1 + guid() % obj'cnt;
-    obj = db@oid;
-    assert "object exists" oid (obj.oid);
+  oid = 1 + guid() % obj'cnt;
+  obj = db@oid;
+  assert "object exists" oid (obj.oid);
 
-    metricOneTx ();
+  metricOneTx ();
+  
+  sleep 1000; -- delay a millisecond
 
-  };
+};

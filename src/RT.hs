@@ -174,6 +174,7 @@ defaultGlobals = do
         | (nm, hp) <-
           [ ("assert"      , assertHP)
           , ("print"       , printHP)
+          , ("sleep"       , sleepHP)
           , ("guid"        , guidHP guidCntr)
           , ("concur"      , concurHP)
           , ("repeat"      , repeatHP)
@@ -209,6 +210,17 @@ defaultGlobals = do
     !arg     -> do
       txContIO pgs (putStrLn $ toString arg) $ const $ return ()
       exitProc pgs exit NilValue
+
+  sleepHP :: HostProc
+  sleepHP !usExpr !pgs !exit = if pgs'in'tx pgs
+    then error "you don't issue `sleep` from within a transaction"
+    else evalExpr usExpr pgs $ \case
+      IntValue !us ->
+        txContIO pgs (threadDelay $ fromIntegral us) $ const $ exitProc
+          pgs
+          exit
+          NilValue
+      !badDelay -> error $ "bad microsend value to sleep: " <> show badDelay
 
   guidHP :: IORef Int64 -> HostProc
   guidHP !guidCntr _ !pgs !exit = if pgs'in'tx pgs
