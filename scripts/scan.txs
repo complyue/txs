@@ -1,8 +1,7 @@
 
-conc = 6;
+conc = 1;
 objs'per'tx = 10;
 
-sleep'per'tx = 1000; -- in microseconds, per (metric-wise) TX
 total'objs = 1080000;
 batch'seconds = 3;
 
@@ -19,25 +18,26 @@ concur 5 $ repeat { total'objs / 5 } {
   (
     obj = {};
     obj.oid = oid;
-    -- todo more obj attrs to fill
     db@oid = obj;
   );
 
 };
 
-obj'cnt = guid() - 1;
-
-print $ "Scanning among " ++ obj'cnt ++ " objects using concurrency: " ++ conc;
+print $ "Scanning using concurrency: " ++ conc;
 concur conc {
   tld = diag.threadLocalDiag batch'seconds;
-  oid = 0; -- thread local counter
+  tlc = 0;
 
   repeat { total'txc / conc } {
 
     repeat objs'per'tx {
-      oid = oid + 1;
+      tlc = tlc + 1;
+      oid = concur'id ++ "#" ++ tlc;
+
+      -- the actual read business
       obj = db@oid;
       assert "object exists" oid (obj.oid);
+
     };
 
     tld.metricOneTx();

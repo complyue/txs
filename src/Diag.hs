@@ -99,7 +99,7 @@ summarizeDiagnostic !rtds = doSum rtds 0 0
       <> " transactions processed in "
       <> show costSeconds
       <> " seconds."
-    when (costSeconds > 0) $ putStrLn $ "Overall TPS: " <> show
+    when (costSeconds > 0) $ putStrLn $ "Overall Average TPS: " <> show
       (div cnt costSeconds)
 
     getRTSStatsEnabled >>= \case

@@ -133,7 +133,12 @@ infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
   builtinOp "." = case rhx of
     Attr !attr -> evalExpr lhx pgs $ \case
       RefValue !tgtObj -> objGetAttr tgtObj attr $ exitProc pgs exit
-      _                -> error "left-hand of dot-notation not an object"
+      !badTgtVal ->
+        error
+          $  "left-hand of dot-notation not an object but: "
+          <> show badTgtVal
+          <> ", by expr: "
+          <> show lhx
     _ -> error "right-hand of dot-notation not an attribute addressor"
   builtinOp "@" = evalExpr rhx pgs $ \ !addrVal ->
     let !tgtAttr = toString addrVal
@@ -147,7 +152,12 @@ infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
     Attr !attr -> objSetAttr (pgs'scope pgs) attr rhv $ exitProc pgs exit
     BinOp "." !tgtExpr (Attr !tgtAttr) -> evalExpr tgtExpr pgs $ \case
       RefValue !tgtObj -> objSetAttr tgtObj tgtAttr rhv $ exitProc pgs exit
-      _                -> error "left-hand of dot-notation not an object"
+      !badTgtVal ->
+        error
+          $  "left-hand of dot-notation not an object but: "
+          <> show badTgtVal
+          <> ", by expr: "
+          <> show lhx
     BinOp "@" !tgtExpr !tgtAddr -> evalExpr tgtAddr pgs $ \ !addrVal ->
       let !tgtAttr = toString addrVal
       in  evalExpr tgtExpr pgs $ \case
@@ -252,7 +262,10 @@ defaultGlobals = do
                           )
                       $ do
                           !thScopeVar <- newTVarIO undefined
-                          atomically $ objClone initScope $ writeTVar thScopeVar
+                          atomically $ objClone initScope $ \ !thScope ->
+                            objSetAttr thScope "concur'id" (IntValue cntr)
+                              $ const
+                              $ writeTVar thScopeVar thScope
                           !thScope <- readTVarIO thScopeVar
                           void $ runTXS thScope concExpr
               -- it's checked we are not in a tx, safe for the exit to be

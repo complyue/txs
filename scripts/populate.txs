@@ -1,51 +1,69 @@
 
-conc = 6;
-total'txc = 36000;
+conc = 2;
+-- process this number of objects per (metric-wise) TX
+objs'per'tx = 10;
+
+total'objs = 1080000;
+batch'seconds = 3;
+
+total'txc = total'objs / objs'per'tx;
+
+diag = diagKit();
 
 -- put the db object into the global scope, before `concur` copies it
 -- for each thread to start running concurrently
 db = {};
 
 print $ "Populating using concurrency: " ++ conc;
-resetMetrics();
+
 -- | fork more threads each with a copy of the global scope at the time of the
 -- fork, and wait all threads terminate before return.
 --
 -- concur :: NumThreads -> Any -> NilValue
-concur conc $
+concur conc {
+
+  -- | thread local dataset
+  tls = {};
+  -- | thread local counter for object identifier
+  tlc = 0;
+
+  -- `concur'id` is a number assigned to each child thread's copied scope,
+  -- by `concur` upon it starts the thread
+  -- have all objects referenced by global db, so they are not GC'ed
+  db@concur'id = tls;
+
+  -- | thread local metrics
+  tld = diag.threadLocalDiag batch'seconds;
 
   -- | repeat the evaluation of its argument expression, for the specified
   -- number of times.
   --
   -- repeat :: CountNumber -> Any -> NilValue
   repeat { total'txc / conc } {
-    repeat 30 { -- 30 objets per (metric-wise) TX
+    repeat objs'per'tx {
 
-      -- assign one global unique identifier
-      -- this can not be in a TX block
-      --
-      -- guid :: Any -> IntValue
-      oid = guid ();
+      tlc = tlc + 1;
 
-      ( -- one STM TX block per single object insertion
+      -- the actual write business, one STM TX block per object insertion
+      (
         obj = {};
-        obj.oid = oid;
-        -- todo more obj attrs to fill
-        db@oid = obj;
+        obj.oid = tlc;
+        obj.db = db;
+        tls@tlc = obj;
       );
 
     };
 
     -- | report the completion of one transaction, it's up to the
-    -- implementation of the host procedure that, how statistics, like TPS
-    -- over time, are gathered and visualized.
+    -- implementation of the host diagnostic class that, how statistics, like
+    -- TPS over time, are gathered and visualized.
     --
-    -- metricOneTx :: Any -> NilValue
-    metricOneTx ();
+    -- diagKit.threadLocalDiag.metricOneTx :: Any -> NilValue
+    tld.metricOneTx();
 
-    -- | Suspends the current thread for a given number of microseconds
-    --
-    -- sleep :: IntValue -> NilValue
-    sleep 1000;
-  
   };
+
+  tld.doneDiag();
+};
+
+diag.summarize();
