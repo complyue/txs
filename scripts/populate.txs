@@ -1,5 +1,5 @@
 
-conc = 2;
+conc = 3;
 -- process this number of objects per (metric-wise) TX
 objs'per'tx = 10;
 
@@ -8,13 +8,13 @@ batch'seconds = 3;
 
 total'txc = total'objs / objs'per'tx;
 
-diag = diagKit();
 
 -- put the db object into the global scope, before `concur` copies it
 -- for each thread to start running concurrently
 db = {};
 
 print $ "Populating using concurrency: " ++ conc;
+diag = diagKit();
 
 -- | fork more threads each with a copy of the global scope at the time of the
 -- fork, and wait all threads terminate before return.

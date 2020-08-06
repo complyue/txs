@@ -1,5 +1,5 @@
 
-conc = 1;
+conc = 5;
 objs'per'tx = 10;
 
 total'objs = 1080000;
@@ -7,36 +7,84 @@ batch'seconds = 3;
 
 total'txc = total'objs / objs'per'tx;
 
-diag = diagKit();
+
 db = {};
 
-print $ "Populating ...";
-concur 5 $ repeat { total'objs / 5 } {
+print $ "Populating using concurrency: " ++ conc;
+diag = diagKit();
 
-  oid = guid ();
+-- | fork more threads each with a copy of the global scope at the time of the
+-- fork, and wait all threads terminate before return.
+--
+-- concur :: NumThreads -> Any -> NilValue
+concur conc {
 
-  (
-    obj = {};
-    obj.oid = oid;
-    db@oid = obj;
-  );
+  -- | thread local dataset
+  tls = {};
+  -- | thread local counter for object identifier
+  tlc = 0;
 
+  -- `concur'id` is a number assigned to each child thread's copied scope,
+  -- by `concur` upon it starts the thread
+  -- have all objects referenced by global db, so they are not GC'ed
+  db@concur'id = tls;
+
+  -- | thread local metrics
+  tld = diag.threadLocalDiag batch'seconds;
+
+  -- | repeat the evaluation of its argument expression, for the specified
+  -- number of times.
+  --
+  -- repeat :: CountNumber -> Any -> NilValue
+  repeat { total'txc / conc } {
+    repeat objs'per'tx {
+
+      tlc = tlc + 1;
+
+      -- the actual write business, one STM TX block per object insertion
+      (
+        obj = {};
+        obj.oid = tlc;
+        obj.db = db;
+        tls@tlc = obj;
+      );
+
+    };
+
+    -- | report the completion of one transaction, it's up to the
+    -- implementation of the host diagnostic class that, how statistics, like
+    -- TPS over time, are gathered and visualized.
+    --
+    -- diagKit.threadLocalDiag.metricOneTx :: Any -> NilValue
+    tld.metricOneTx();
+
+  };
+
+  tld.doneDiag();
 };
 
+diag.summarize();
+
+
 print $ "Scanning using concurrency: " ++ conc;
+diag = diagKit();
+
 concur conc {
-  tld = diag.threadLocalDiag batch'seconds;
+
+  tls = db@concur'id;
   tlc = 0;
+
+  tld = diag.threadLocalDiag batch'seconds;
 
   repeat { total'txc / conc } {
 
     repeat objs'per'tx {
+
       tlc = tlc + 1;
-      oid = concur'id ++ "#" ++ tlc;
 
       -- the actual read business
-      obj = db@oid;
-      assert "object exists" oid (obj.oid);
+      obj = tls@tlc;
+      assert "object exists" tlc (obj.oid);
 
     };
 
