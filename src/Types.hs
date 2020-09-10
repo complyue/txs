@@ -34,7 +34,7 @@ data Expr = Attr !String
 
 -- * Runtime Data Types
 
-type AttrId = String
+type AttrKey = String
 
 data AttrVal = NilValue
   | IntValue !Integer
@@ -75,21 +75,21 @@ newObj' !objStore = newObj'' (toDyn objStore)
 -- mockup of an insertion-order-preserving dict used in realworld case,
 -- which being `TVar (HashMap AttrVal Int)` where the Int be addressing a
 -- `TVar (Vector (TVar AttrVal))`
-type HashStore = Map AttrId (TVar AttrVal)
+type HashStore = Map AttrKey (TVar AttrVal)
 
 newObj :: (Object -> STM ()) -> STM ()
 newObj !exit = do
   !osv <- newTVar (Map.empty :: HashStore)
   newObj' osv exit
 
-objGetAttr :: Object -> AttrId -> (AttrVal -> STM ()) -> STM ()
+objGetAttr :: Object -> AttrKey -> (AttrVal -> STM ()) -> STM ()
 objGetAttr (Object _ !osv) !attr !exit = fromDynamic <$> readTVar osv >>= \case
   Nothing                      -> error "bug: not a plain obj with hash store"
   Just (hsv :: TVar HashStore) -> Map.lookup attr <$> readTVar hsv >>= \case
     Nothing       -> exit NilValue
     Just !attrVar -> readTVar attrVar >>= exit
 
-objSetAttr :: Object -> AttrId -> AttrVal -> (AttrVal -> STM ()) -> STM ()
+objSetAttr :: Object -> AttrKey -> AttrVal -> (AttrVal -> STM ()) -> STM ()
 objSetAttr (Object _ !osv) !attr !val !exit =
   fromDynamic <$> readTVar osv >>= \case
     Nothing                      -> error "bug: not a plain obj with hash store"

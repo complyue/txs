@@ -23,36 +23,38 @@ import           Utils
 import           Diag
 
 
-evalExpr :: Expr -> ProgState -> (AttrVal -> STM ()) -> STM ()
-evalExpr !expr !pgs !exit = case expr of
+evalExpr :: Expr -> ThreadState -> (AttrVal -> STM ()) -> STM ()
+evalExpr !expr !ths !exit = case expr of
   Paren !exprInTx ->
-    evalExpr exprInTx pgs { pgs'in'tx = True } $ \ !val -> exitProc pgs exit val
-  FnApp !lhx !rhx -> evalExpr lhx pgs $ \case
+    evalExpr exprInTx ths { ths'in'tx = True } $ \ !val -> exitProc ths exit val
+  FnApp !lhx !rhx -> evalExpr lhx ths $ \case
     RefValue (Object _ !osv) -> do
       !os <- readTVar osv
       case fromDynamic os of
         -- a callable host object, make the strict function application
         Just (hostProc :: HostProc) ->
-          hostProc rhx pgs $ \ !val -> exitProc pgs exit val
+          hostProc rhx ths $ \ !val -> exitProc ths exit val
         Nothing -> error $ "an object but not callable by expr: " <> show lhx
     _ -> error $ "not an object (to be called) by expr: " <> show lhx
-  BinOp !opSym !lhx !rhx -> infixOp pgs opSym lhx rhx exit
-  LitObj                 -> newObj $ \ !obj -> exitProc pgs exit $ RefValue obj
-  LitInt !val            -> exitProc pgs exit $ IntValue val
-  LitStr !val            -> exitProc pgs exit $ StrValue val
-  LitNil                 -> exitProc pgs exit NilValue
+  BinOp !opSym !lhx !rhx -> infixOp ths opSym lhx rhx exit
+  LitObj                 -> newObj $ \ !obj -> exitProc ths exit $ RefValue obj
+  LitInt !val            -> exitProc ths exit $ IntValue val
+  LitStr !val            -> exitProc ths exit $ StrValue val
+  LitNil                 -> exitProc ths exit NilValue
   Attr !attr ->
-    objGetAttr (pgs'scope pgs) attr $ \ !val -> exitProc pgs exit val
-  Brace !exprInBlock -> evalExpr exprInBlock pgs exit
+    objGetAttr (ths'scope ths) attr $ \ !val -> exitProc ths exit val
+  Brace !exprInBlock -> evalExpr exprInBlock ths exit
 
 
 runTXS :: Object -> Expr -> IO AttrVal
 runTXS !global !ast = do
   !tq <- newTQueueIO
-  let !pgs =
-        ProgState { pgs'in'tx = False, pgs'scope = global, pgs'task'queue = tq }
+  let !ths = ThreadState { ths'in'tx      = False
+                         , ths'scope      = global
+                         , ths'task'queue = tq
+                         }
   !progExit <- newTVarIO NilValue
-  atomically $ writeTQueue tq $ Right $ evalExpr ast pgs $ writeTVar progExit
+  atomically $ writeTQueue tq $ Right $ evalExpr ast ths $ writeTVar progExit
   driveProg tq
   readTVarIO progExit
 
@@ -66,13 +68,13 @@ driveProg !tq = atomically (tryReadTQueue tq) >>= \case
     atomically job
     driveProg tq
 
-data ProgState = ProgState {
-    pgs'in'tx :: !Bool
-  , pgs'scope :: !Object
-  , pgs'task'queue :: !(TQueue (Either (IO ()) (STM())))
+data ThreadState = ThreadState {
+    ths'in'tx :: !Bool
+  , ths'scope :: !Object
+  , ths'task'queue :: !(TQueue (Either (IO ()) (STM())))
   }
 
-type HostProc = Expr -> ProgState -> (AttrVal -> STM ()) -> STM ()
+type HostProc = Expr -> ThreadState -> (AttrVal -> STM ()) -> STM ()
 
 -- | Helper for proper CPS exit from within a 'HostProc'
 --
@@ -80,59 +82,60 @@ type HostProc = Expr -> ProgState -> (AttrVal -> STM ()) -> STM ()
 -- block (by parenthesis quoting a sequence of expressions), otherwise should
 -- enqueue the continuation for it to be executed in a separate, subsequent STM
 -- transaction.
-exitProc :: ProgState -> (AttrVal -> STM ()) -> AttrVal -> STM ()
-exitProc !pgs !exit !val = if pgs'in'tx pgs
+exitProc :: ThreadState -> (AttrVal -> STM ()) -> AttrVal -> STM ()
+exitProc !ths !exit !val = if ths'in'tx ths
   then exit val
-  else writeTQueue (pgs'task'queue pgs) $ Right $! exit val
+  else writeTQueue (ths'task'queue ths) $ Right $! exit val
 
 -- | Schedule an IO action to initiate the subsequent STM transaction, it'll be
 -- performed after current STM transaction is committed.
 --
 -- CAVEAT: This can break the transaction boundary intuited at scripting level,
 --         if the stem exit of a 'HostProc' is only passed to 'txContIO' as
---         the 'initNextTx', "pgs'in'tx" state should be checked being False
+--         the 'initNextTx', "ths'in'tx" state should be checked being False
 --         for doing that safely.
-txContIO :: forall a . ProgState -> IO a -> (a -> STM ()) -> STM ()
-txContIO !pgs !act !initNextTx = writeTQueue tq $ Left $ do
+txContIO :: forall a . ThreadState -> IO a -> (a -> STM ()) -> STM ()
+txContIO !ths !act !initNextTx = writeTQueue tq $ Left $ do
   !result <- act
   atomically $ writeTQueue tq $ Right $! initNextTx result
-  where !tq = pgs'task'queue pgs
+  where !tq = ths'task'queue ths
 
 
-infixOp :: ProgState -> String -> Expr -> Expr -> (AttrVal -> STM ()) -> STM ()
-infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
+infixOp
+  :: ThreadState -> String -> Expr -> Expr -> (AttrVal -> STM ()) -> STM ()
+infixOp !ths !sym !lhx !rhx !exit = builtinOp sym
  where
-  builtinOp ";" = evalExpr lhx pgs $ const $ evalExpr rhx pgs exit
-  builtinOp "+" = evalExpr lhx pgs $ \case
-    IntValue !lhi -> evalExpr rhx pgs $ \case
-      IntValue !rhi -> exitProc pgs exit $ IntValue $ lhi + rhi
+  builtinOp ";" = evalExpr lhx ths $ const $ evalExpr rhx ths exit
+  builtinOp "+" = evalExpr lhx ths $ \case
+    IntValue !lhi -> evalExpr rhx ths $ \case
+      IntValue !rhi -> exitProc ths exit $ IntValue $ lhi + rhi
       _             -> error "right-hand to (+) not a number"
     _ -> error "left-hand to (+) not a number"
-  builtinOp "-" = evalExpr lhx pgs $ \case
-    IntValue !lhi -> evalExpr rhx pgs $ \case
-      IntValue !rhi -> exitProc pgs exit $ IntValue $ lhi - rhi
+  builtinOp "-" = evalExpr lhx ths $ \case
+    IntValue !lhi -> evalExpr rhx ths $ \case
+      IntValue !rhi -> exitProc ths exit $ IntValue $ lhi - rhi
       _             -> error "right-hand to (-) not a number"
     _ -> error "left-hand to (-) not a number"
-  builtinOp "*" = evalExpr lhx pgs $ \case
-    IntValue !lhi -> evalExpr rhx pgs $ \case
-      IntValue !rhi -> exitProc pgs exit $ IntValue $ lhi * rhi
+  builtinOp "*" = evalExpr lhx ths $ \case
+    IntValue !lhi -> evalExpr rhx ths $ \case
+      IntValue !rhi -> exitProc ths exit $ IntValue $ lhi * rhi
       _             -> error "right-hand to (*) not a number"
     _ -> error "left-hand to (*) not a number"
-  builtinOp "/" = evalExpr lhx pgs $ \case
-    IntValue !lhi -> evalExpr rhx pgs $ \case
-      IntValue !rhi -> exitProc pgs exit $ IntValue $ div lhi rhi
+  builtinOp "/" = evalExpr lhx ths $ \case
+    IntValue !lhi -> evalExpr rhx ths $ \case
+      IntValue !rhi -> exitProc ths exit $ IntValue $ div lhi rhi
       _             -> error "right-hand to (/) not a number"
     _ -> error "left-hand to (/) not a number"
-  builtinOp "%" = evalExpr lhx pgs $ \case
-    IntValue !lhi -> evalExpr rhx pgs $ \case
-      IntValue !rhi -> exitProc pgs exit $ IntValue $ mod lhi rhi
+  builtinOp "%" = evalExpr lhx ths $ \case
+    IntValue !lhi -> evalExpr rhx ths $ \case
+      IntValue !rhi -> exitProc ths exit $ IntValue $ mod lhi rhi
       _             -> error "right-hand to (%) not a number"
     _ -> error "left-hand to (%) not a number"
-  builtinOp "++" = evalExpr lhx pgs $ \ !lhv -> evalExpr rhx pgs
-    $ \ !rhv -> exitProc pgs exit $ StrValue $ toString lhv ++ toString rhv
+  builtinOp "++" = evalExpr lhx ths $ \ !lhv -> evalExpr rhx ths
+    $ \ !rhv -> exitProc ths exit $ StrValue $ toString lhv ++ toString rhv
   builtinOp "." = case rhx of
-    Attr !attr -> evalExpr lhx pgs $ \case
-      RefValue !tgtObj -> objGetAttr tgtObj attr $ exitProc pgs exit
+    Attr !attr -> evalExpr lhx ths $ \case
+      RefValue !tgtObj -> objGetAttr tgtObj attr $ exitProc ths exit
       !badTgtVal ->
         error
           $  "left-hand of dot-notation not an object but: "
@@ -140,29 +143,29 @@ infixOp !pgs !sym !lhx !rhx !exit = builtinOp sym
           <> ", by expr: "
           <> show lhx
     _ -> error "right-hand of dot-notation not an attribute addressor"
-  builtinOp "@" = evalExpr rhx pgs $ \ !addrVal ->
+  builtinOp "@" = evalExpr rhx ths $ \ !addrVal ->
     let !tgtAttr = toString addrVal
-    in  evalExpr lhx pgs $ \case
-          RefValue !tgtObj -> objGetAttr tgtObj tgtAttr $ exitProc pgs exit
+    in  evalExpr lhx ths $ \case
+          RefValue !tgtObj -> objGetAttr tgtObj tgtAttr $ exitProc ths exit
           !badTgtVal ->
             error
               $  "left-hand of at-notation not an object but: "
               <> show badTgtVal
-  builtinOp "=" = evalExpr rhx pgs $ \ !rhv -> case lhx of
-    Attr !attr -> objSetAttr (pgs'scope pgs) attr rhv $ exitProc pgs exit
-    BinOp "." !tgtExpr (Attr !tgtAttr) -> evalExpr tgtExpr pgs $ \case
-      RefValue !tgtObj -> objSetAttr tgtObj tgtAttr rhv $ exitProc pgs exit
+  builtinOp "=" = evalExpr rhx ths $ \ !rhv -> case lhx of
+    Attr !attr -> objSetAttr (ths'scope ths) attr rhv $ exitProc ths exit
+    BinOp "." !tgtExpr (Attr !tgtAttr) -> evalExpr tgtExpr ths $ \case
+      RefValue !tgtObj -> objSetAttr tgtObj tgtAttr rhv $ exitProc ths exit
       !badTgtVal ->
         error
           $  "left-hand of dot-notation not an object but: "
           <> show badTgtVal
           <> ", by expr: "
           <> show lhx
-    BinOp "@" !tgtExpr !tgtAddr -> evalExpr tgtAddr pgs $ \ !addrVal ->
+    BinOp "@" !tgtExpr !tgtAddr -> evalExpr tgtAddr ths $ \ !addrVal ->
       let !tgtAttr = toString addrVal
-      in  evalExpr tgtExpr pgs $ \case
+      in  evalExpr tgtExpr ths $ \case
             RefValue !tgtObj ->
-              objSetAttr tgtObj tgtAttr rhv $ exitProc pgs exit
+              objSetAttr tgtObj tgtAttr rhv $ exitProc ths exit
             !badTgtVal ->
               error
                 $  "left-hand of at-notation not an object but: "
@@ -198,53 +201,53 @@ defaultGlobals = do
  where
 
   assertHP :: HostProc -- manual currying implemented here
-  assertHP !msgExpr !pgs !exit = evalExpr msgExpr pgs $ \ !assertMsg ->
-    let assert1HP !expectExpr !pgs1 !exit1 =
-            evalExpr expectExpr pgs1 $ \ !expectVal ->
-              let assert2HP !targetExpr !pgs2 !exit2 =
-                      evalExpr targetExpr pgs2 $ \ !targetVal ->
+  assertHP !msgExpr !ths !exit = evalExpr msgExpr ths $ \ !assertMsg ->
+    let assert1HP !expectExpr !ths1 !exit1 =
+            evalExpr expectExpr ths1 $ \ !expectVal ->
+              let assert2HP !targetExpr !ths2 !exit2 =
+                      evalExpr targetExpr ths2 $ \ !targetVal ->
                         if targetVal == expectVal
                           then
-                            exitProc pgs2 exit2
+                            exitProc ths2 exit2
                             $  StrValue
                             $  " * assertion passed: "
                             <> toString assertMsg
                           else error $ "* assertion failed: " <> toString assertMsg
-              in  newObj' assert2HP $ exitProc pgs exit1 . RefValue
-    in  newObj' assert1HP $ exitProc pgs exit . RefValue
+              in  newObj' assert2HP $ exitProc ths exit1 . RefValue
+    in  newObj' assert1HP $ exitProc ths exit . RefValue
 
   printHP :: HostProc
-  printHP !argExpr !pgs !exit = evalExpr argExpr pgs $ \case
-    NilValue -> exitProc pgs exit NilValue
+  printHP !argExpr !ths !exit = evalExpr argExpr ths $ \case
+    NilValue -> exitProc ths exit NilValue
     !arg     -> do
-      txContIO pgs (putStrLn $ toString arg) $ const $ return ()
-      exitProc pgs exit NilValue
+      txContIO ths (putStrLn $ toString arg) $ const $ return ()
+      exitProc ths exit NilValue
 
   sleepHP :: HostProc
-  sleepHP !usExpr !pgs !exit = if pgs'in'tx pgs
+  sleepHP !usExpr !ths !exit = if ths'in'tx ths
     then error "you don't issue `sleep` from within a transaction"
-    else evalExpr usExpr pgs $ \case
+    else evalExpr usExpr ths $ \case
       IntValue !us ->
-        txContIO pgs (threadDelay $ fromIntegral us) $ const $ exitProc
-          pgs
+        txContIO ths (threadDelay $ fromIntegral us) $ const $ exitProc
+          ths
           exit
           NilValue
       !badDelay -> error $ "bad microsend value to sleep: " <> show badDelay
 
   guidHP :: IORef Int64 -> HostProc
-  guidHP !guidCntr _ !pgs !exit = if pgs'in'tx pgs
+  guidHP !guidCntr _ !ths !exit = if ths'in'tx ths
     then error "you don't issue `guid` from within a transaction"
-    else txContIO pgs (atomicModifyIORef' guidCntr $ \ !c -> (c + 1, c))
-      $ \ !guid -> exitProc pgs exit $ IntValue $ fromIntegral guid
+    else txContIO ths (atomicModifyIORef' guidCntr $ \ !c -> (c + 1, c))
+      $ \ !guid -> exitProc ths exit $ IntValue $ fromIntegral guid
 
   concurHP :: HostProc
-  concurHP !nExpr !pgs !exit = if pgs'in'tx pgs
+  concurHP !nExpr !ths !exit = if ths'in'tx ths
     then error "you don't issue `concur` from within a transaction"
-    else evalExpr nExpr pgs $ \case
+    else evalExpr nExpr ths $ \case
       IntValue !concN | concN > 0 ->
-        let concur1HP !concExpr !pgs1 !exit1 = do
+        let concur1HP !concExpr !ths1 !exit1 = do
               !concDoneSem <- newTSem $ fromIntegral $ 1 - concN
-              let !initScope = pgs'scope pgs
+              let !initScope = ths'scope ths
                   reportThreadError !anywayAct = \case
                     Left !err -> do
                       !thId <- myThreadId
@@ -270,30 +273,30 @@ defaultGlobals = do
                           void $ runTXS thScope concExpr
               -- it's checked we are not in a tx, safe for the exit to be
               -- continued onward from next tx
-              txContIO pgs (forkConcur concN) $ const $ do
+              txContIO ths (forkConcur concN) $ const $ do
                 waitTSem concDoneSem
-                exitProc pgs1 exit1 NilValue
-        in  newObj' concur1HP $ exitProc pgs exit . RefValue
+                exitProc ths1 exit1 NilValue
+        in  newObj' concur1HP $ exitProc ths exit . RefValue
       !badConcN -> error $ "invalid concurrency number: " <> show badConcN
 
   repeatHP :: HostProc
-  repeatHP !argExpr !pgs !exit = evalExpr argExpr pgs $ \case
+  repeatHP !argExpr !ths !exit = evalExpr argExpr ths $ \case
     IntValue !cnt | cnt >= 0 ->
-      let repeat1 !repeateeExpr !pgs1 !exit1 = doRepeat cnt             where
+      let repeat1 !repeateeExpr !ths1 !exit1 = doRepeat cnt             where
               doRepeat !cntLeft = if cntLeft < 1
-                then exitProc pgs1 exit1 NilValue
-                else evalExpr repeateeExpr pgs1 $ const $ doRepeat (cntLeft - 1)
-      in  newObj' repeat1 $ exitProc pgs exit . RefValue
+                then exitProc ths1 exit1 NilValue
+                else evalExpr repeateeExpr ths1 $ const $ doRepeat (cntLeft - 1)
+      in  newObj' repeat1 $ exitProc ths exit . RefValue
     !badCnt ->
       error $ "`repeat` expects a positive number, but given: " <> show badCnt
 
 
   diagKitCtor :: HostProc
-  diagKitCtor !_argExpr !pgs !exit = newObj $ \ !kit -> do
+  diagKitCtor !_argExpr !ths !exit = newObj $ \ !kit -> do
     !rtdsVar <- newTVar []
     let
-      threadLocalDiagHP !batchSecondsExpr !pgs' !exit' =
-        evalExpr batchSecondsExpr pgs' $ \case
+      threadLocalDiagHP !batchSecondsExpr !ths' !exit' =
+        evalExpr batchSecondsExpr ths' $ \case
           IntValue !bat'secs | bat'secs > 0 -> do
             !rtd <- unsafeIOToSTM $ startRuntimeDiagnostic $ fromIntegral
               bat'secs
@@ -308,7 +311,7 @@ defaultGlobals = do
                     ]
                   ]
                 $ const
-                $ exitProc pgs' exit'
+                $ exitProc ths' exit'
                 $ RefValue tld
           !badBatchSecs ->
             error $ "bad value for batchSeconds: " <> show badBatchSecs
@@ -321,22 +324,22 @@ defaultGlobals = do
           ]
         ]
       $ const
-      $ exitProc pgs exit
+      $ exitProc ths exit
       $ RefValue kit
 
   metricOneTxHP :: RtDiag -> HostProc
-  metricOneTxHP !rtd _ !pgs !exit = do
-    txContIO pgs (encountOneTxCompletion rtd) $ const $ return ()
-    exitProc pgs exit NilValue
+  metricOneTxHP !rtd _ !ths !exit = do
+    txContIO ths (encountOneTxCompletion rtd) $ const $ return ()
+    exitProc ths exit NilValue
 
   doneDiagHP :: RtDiag -> HostProc
-  doneDiagHP !rtd _ !pgs !exit = do
-    txContIO pgs (doneRuntimeDiagnostic rtd) $ const $ return ()
-    exitProc pgs exit NilValue
+  doneDiagHP !rtd _ !ths !exit = do
+    txContIO ths (doneRuntimeDiagnostic rtd) $ const $ return ()
+    exitProc ths exit NilValue
 
   summarizeDiag :: TVar [RtDiag] -> HostProc
-  summarizeDiag !rtdsVar _ !pgs !exit = do
+  summarizeDiag !rtdsVar _ !ths !exit = do
     !rtds <- readTVar rtdsVar
-    txContIO pgs (summarizeDiagnostic rtds) $ const $ return ()
-    exitProc pgs exit NilValue
+    txContIO ths (summarizeDiagnostic rtds) $ const $ return ()
+    exitProc ths exit NilValue
 
