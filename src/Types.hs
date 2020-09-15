@@ -51,20 +51,6 @@ toString :: AttrVal -> String
 toString (StrValue !s) = s
 toString !v            = show v
 
-
-data ArgsPack = ArgsPack {
-    positional'args :: [AttrVal]
-  , keyword'args    :: [(AttrKey, AttrVal)]
-  }
-instance Semigroup ArgsPack where
-  (ArgsPack p1 kw1) <> (ArgsPack p2 kw2) = ArgsPack (p1 ++ p2) (kw1 ++ kw2)
-instance Monoid ArgsPack where
-  mempty = ArgsPack [] []
-
-class Callable a where
-  call :: a -> ArgsPack -> (AttrVal -> STM ()) -> STM ()
-
-
 data Object = Object {
       obj'uniq :: !Unique
       -- wrapped storage of native types in host language
