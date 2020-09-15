@@ -85,7 +85,7 @@ takeKwArg !k !kwargs = go [] kwargs
 
 type ContProc = (AttrVal -> IO ()) -> IO ()
 
--- | Haskell functions applicable with an apk
+-- | Haskell functions callable with an apk
 class Callable fn where
   call :: fn -> ArgsPack -> ContProc
 
@@ -98,7 +98,7 @@ instance Callable ContProc where
 instance Callable fn' => Callable (ArgsPack -> fn') where
   call !fn !apk !exit = call (fn apk) (ArgsPack [] []) exit
 
--- instances for positional cases, i.e. non-last positional arg receivers
+-- instances for positional arg receivers
 
 instance Callable fn' => Callable (AttrVal -> fn') where
   call !fn (ArgsPack (val : args) !kwargs) !exit =
@@ -127,7 +127,7 @@ instance Callable fn' => Callable (Maybe String -> fn') where
 -- todo instances for receivers of positional arg of (Maybe) Integer
 -- type, and other types covered by AttrVal
 
--- instances for keyword args
+-- instances for keyword arg receivers
 
 instance (KnownSymbol name, Callable fn') => Callable (NamedArg AttrVal name -> fn') where
   call !fn (ArgsPack !args !kwargs) !exit = case takeKwArg argName kwargs of
