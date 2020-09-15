@@ -6,12 +6,13 @@
 module Main where
 
 import           Prelude
+
 import           Data.Functor.Identity          ( Identity(..) )
 import           GHC.OverloadedLabels           ( IsLabel(..) )
 
 import           Data.Dynamic
 
-import           Named.Internal1
+import           Args
 
 
 -- * minimum data structures as interface with scripting code

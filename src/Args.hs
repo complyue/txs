@@ -1,10 +1,10 @@
 {-# LANGUAGE KindSignatures, DataKinds, FlexibleInstances, FlexibleContexts,
              FunctionalDependencies, TypeFamilies, TypeOperators,
              PatternSynonyms, UndecidableInstances, ConstraintKinds,
-             TypeApplications, ScopedTypeVariables, CPP,
+             TypeApplications, ScopedTypeVariables,
              AllowAmbiguousTypes #-}
 
-module Named.Internal1 where
+module Args where
 
 import Prelude (id, Maybe(..))
 import Data.Maybe (fromMaybe)
@@ -32,9 +32,7 @@ newtype NamedF f (a :: Type) (name :: Symbol) =
 pattern Arg :: a -> name :! a
 pattern Arg a = ArgF (Identity a)
 
-#if MIN_VERSION_base(4,10,0)
 {-# COMPLETE Arg #-}
-#endif
 
 -- | Infix notation for the type of a named parameter.
 type name :! a = NamedF Identity a name
@@ -43,21 +41,13 @@ type name :! a = NamedF Identity a name
 type name :? a = NamedF Maybe a name
 
 instance (Applicative f) => IsLabel name (a -> NamedF f a name) where
-#if MIN_VERSION_base(4,10,0)
   fromLabel a = ArgF (pure a)
-#else
-  fromLabel _ a = ArgF (pure a)
-#endif
   {-# INLINE fromLabel #-}
 
 newtype Param p = Param p
 
 instance (p ~ NamedF f a name, Applicative f) => IsLabel name (a -> Param p) where
-#if MIN_VERSION_base(4,10,0)
   fromLabel a = Param (fromLabel @name a)
-#else
-  fromLabel pName a = Param (fromLabel pName a)
-#endif
   {-# INLINE fromLabel #-}
 
 {- | Explicitly build a function parameter:
@@ -174,11 +164,7 @@ A proxy for a name, intended for use with @-XOverloadedLabels@:
 data Name (name :: Symbol) = Name
 
 instance IsLabel name (Name name) where
-#if MIN_VERSION_base(4,10,0)
   fromLabel = Name
-#else
-  fromLabel _ = Name
-#endif
   {-# INLINE fromLabel #-}
 
 {- |
