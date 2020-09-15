@@ -40,11 +40,11 @@ pattern Arg t = NamedArg t
 arg ::  name !: t -> t 
 arg (NamedArg a) = a
 
-maybeArg :: name ?: t -> Maybe t
-maybeArg (NamedArg !ma) = ma
+optionalArg :: name ?: t -> Maybe t
+optionalArg (NamedArg !ma) = ma
 
-argDef :: t -> name ?: t -> t
-argDef !a (NamedArg !ma) = fromMaybe a ma
+defaultArg :: t -> name ?: t -> t
+defaultArg !a (NamedArg !ma) = fromMaybe a ma
 
 
 -- * minimum data structures as interface with scripting code
@@ -188,7 +188,7 @@ assert
   -> "message" ?: String
   -> (AttrVal -> IO ())
   -> IO ()
-assert (Arg !expect) (maybeArg -> !maybeTarget) (argDef "sth ought to be" -> !message) !exit
+assert (Arg !expect) (optionalArg -> !maybeTarget) (defaultArg "sth ought to be" -> !message) !exit
   = case maybeTarget of
     Nothing -> case expect of
       NilValue    -> error $ "* assertion failed: " <> message
@@ -217,12 +217,5 @@ main = do
     , ("expect" , IntValue 333)
     ]
   !apk2 = ArgsPack [IntValue 333, IntValue 333, StrValue "as good will"] []
-  !apk3 = ArgsPack
-    [IntValue 333]
-    [("message", StrValue "as good will"), ("target", IntValue 333)]
-  !apk4 = ArgsPack
-    []
-    [ ("message", StrValue "as good will")
-    , ("target" , IntValue 333)
-    , ("expect" , IntValue 555)
-    ]
+  !apk3 = ArgsPack [IntValue 333] [("target", IntValue 333)]
+  !apk4 = ArgsPack [] [("target", IntValue 333), ("expect", IntValue 555)]
