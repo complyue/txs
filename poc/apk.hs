@@ -103,7 +103,7 @@ instance Callable fn' => Callable (ArgsPack -> fn') where
 instance Callable fn' => Callable (AttrVal -> fn') where
   call !fn (ArgsPack (val : args) !kwargs) !exit =
     call (fn val) (ArgsPack args kwargs) exit
-  call _ _ _ = error "missing positional args"
+  call _ _ _ = error "missing anonymous arg"
 
 instance Callable fn' => Callable (Maybe AttrVal -> fn') where
   call !fn (ArgsPack [] !kwargs) !exit =
@@ -115,7 +115,7 @@ instance Callable fn' => Callable (String -> fn') where
   call !fn (ArgsPack (val : args) !kwargs) !exit = case val of
     StrValue !val' -> call (fn val') (ArgsPack args kwargs) exit
     _              -> error "arg type mismatch"
-  call _ _ _ = error "missing positional args"
+  call _ _ _ = error "missing anonymous arg"
 
 instance Callable fn' => Callable (Maybe String -> fn') where
   call !fn (ArgsPack [] !kwargs) !exit =
@@ -131,33 +131,48 @@ instance Callable fn' => Callable (Maybe String -> fn') where
 
 instance (KnownSymbol name, Callable fn') => Callable (NamedArg AttrVal name -> fn') where
   call !fn (ArgsPack !args !kwargs) !exit = case takeKwArg argName kwargs of
-    (Just val, kwargs') ->
+    (Just !val, kwargs') ->
       call (fn (NamedArg val)) (ArgsPack args kwargs') exit
-    (Nothing, _) -> error $ "missing kwarg: " <> argName
+    (Nothing, kwargs') -> case args of
+      []            -> error $ "missing named arg: " <> argName
+      (val : args') -> call (fn (NamedArg val)) (ArgsPack args' kwargs') exit
     where !argName = symbolVal (Proxy :: Proxy name)
 
 instance (KnownSymbol name, Callable fn') => Callable (NamedArg (Maybe AttrVal) name -> fn') where
   call !fn (ArgsPack !args !kwargs) !exit = case takeKwArg argName kwargs of
-    (maybeVal, kwargs') ->
+    (Nothing, !kwargs') -> case args of
+      [] -> call (fn (NamedArg Nothing)) (ArgsPack [] kwargs') exit
+      val : args' ->
+        call (fn (NamedArg (Just val))) (ArgsPack args' kwargs') exit
+    (!maybeVal, !kwargs') ->
       call (fn (NamedArg maybeVal)) (ArgsPack args kwargs') exit
     where !argName = symbolVal (Proxy :: Proxy name)
 
 instance (KnownSymbol name, Callable fn') => Callable (NamedArg String name -> fn') where
   call !fn (ArgsPack !args !kwargs) !exit = case takeKwArg argName kwargs of
-    (Just val, kwargs') -> case val of
+    (Just !val, !kwargs') -> case val of
       StrValue !val' -> call (fn (NamedArg val')) (ArgsPack args kwargs') exit
       _              -> error "arg type mismatch"
-    (Nothing, _) -> error $ "missing kwarg: " <> argName
+    (Nothing, !kwargs') -> case args of
+      []          -> error $ "missing named arg: " <> argName
+      val : args' -> case val of
+        StrValue !val' ->
+          call (fn (NamedArg val')) (ArgsPack args' kwargs') exit
+        _ -> error "arg type mismatch"
     where !argName = symbolVal (Proxy :: Proxy name)
 
 instance (KnownSymbol name, Callable fn') => Callable (NamedArg (Maybe String) name -> fn') where
   call !fn (ArgsPack !args !kwargs) !exit = case takeKwArg argName kwargs of
-    (Nothing, kwargs') ->
-      call (fn (NamedArg Nothing)) (ArgsPack args kwargs') exit
-    (Just !val, kwargs') -> case val of
+    (Just !val, !kwargs') -> case val of
       StrValue !val' ->
         call (fn (NamedArg (Just val'))) (ArgsPack args kwargs') exit
       _ -> error "arg type mismatch"
+    (Nothing, !kwargs') -> case args of
+      []          -> call (fn (NamedArg Nothing)) (ArgsPack [] kwargs') exit
+      val : args' -> case val of
+        StrValue !val' ->
+          call (fn (NamedArg (Just val'))) (ArgsPack args' kwargs') exit
+        _ -> error "arg type mismatch"
     where !argName = symbolVal (Proxy :: Proxy name)
 
 -- todo instances for receivers of keyword arg of (Maybe) Integer
@@ -187,13 +202,27 @@ assert (Arg !expect) (maybeArg -> !maybeTarget) (argDef "sth ought to be" -> !me
 
 -- mockup & test out
 main :: IO ()
-main = call assert apk $ \ !result -> putStrLn $ "Got result: " <> show result
+main = do
+  call assert apk1 $ \ !result -> putStrLn $ "Got result1: " <> show result
+  call assert apk2 $ \ !result -> putStrLn $ "Got result2: " <> show result
+  call assert apk3 $ \ !result -> putStrLn $ "Got result3: " <> show result
+  call assert apk4 $ \ !result -> putStrLn $ "Got result4: " <> show result
 
  where
 
-  !apk = ArgsPack
+  !apk1 = ArgsPack
     []
     [ ("message", StrValue "as good will")
     , ("target" , IntValue 333)
     , ("expect" , IntValue 333)
+    ]
+  !apk2 = ArgsPack [IntValue 333, IntValue 333, StrValue "as good will"] []
+  !apk3 = ArgsPack
+    [IntValue 333]
+    [("message", StrValue "as good will"), ("target", IntValue 333)]
+  !apk4 = ArgsPack
+    []
+    [ ("message", StrValue "as good will")
+    , ("target" , IntValue 333)
+    , ("expect" , IntValue 555)
     ]
